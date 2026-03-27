@@ -27,92 +27,107 @@ OUTPUT_DIR = "docs"
 # TIC-80 binary path — override with TIC80_PATH env var
 TIC80_BIN = os.environ.get("TIC80_PATH", "tic80")
 
-# .tic file format constants
 TIC_CHUNK_CODE = 5
-TIC_CHUNK_DEFAULT_PALETTE = 12
 
 
-def make_tic_cartridge(lua_source):
-    """Build a minimal .tic cartridge binary from Lua source code.
-
-    The .tic format uses typed chunks with 4-byte headers:
-      byte 0: chunk type
-      bytes 1-3: chunk size (24-bit little-endian)
-    """
-    data = bytearray()
-
-    # Sweetie 16 default palette (16 colors x 3 bytes RGB)
-    palette = bytes([
-        0x1a, 0x1c, 0x2c, 0x5d, 0x27, 0x5d, 0xb1, 0x3e, 0x53, 0xef, 0x7d, 0x57,
-        0xff, 0xcd, 0x75, 0xa7, 0xf0, 0x70, 0x38, 0xb7, 0x64, 0x25, 0x71, 0x79,
-        0x29, 0x36, 0x6f, 0x3b, 0x5d, 0xc9, 0x41, 0xa6, 0xf6, 0x73, 0xef, 0xf7,
-        0xf4, 0xf4, 0xf4, 0x94, 0xb0, 0xc2, 0x56, 0x6c, 0x86, 0x33, 0x3c, 0x57,
-    ])
-
-    # Palette chunk
-    pal_size = len(palette)
-    data.append(TIC_CHUNK_DEFAULT_PALETTE)
-    data += struct.pack("<I", pal_size)[:3]
-    data += palette
-
-    # Code chunk
-    code_bytes = lua_source.encode("ascii", errors="replace")
-    code_size = len(code_bytes)
-    data.append(TIC_CHUNK_CODE)
-    data += struct.pack("<I", code_size)[:3]
-    data += code_bytes
-
-    return bytes(data)
-
-
-def tic80_export_html(tic_path, out_dir):
-    """Use TIC-80 CLI to export a .tic cartridge to HTML.
-
-    Returns True on success, False on failure.
-    The export produces: index.html, tic80.js, tic80.wasm, cart.tic
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "export.zip")
-        cmd = f'load {tic_path} & export html {zip_path} & exit'
-
-        # Try with xvfb-run first (needed in headless CI), fall back to direct
-        for prefix in [["xvfb-run", "-a"], []]:
-            try:
-                result = subprocess.run(
-                    prefix + [TIC80_BIN, "--cli", "--cmd", cmd],
-                    capture_output=True, text=True, timeout=30,
-                )
-                if os.path.exists(zip_path):
-                    break
-            except FileNotFoundError:
-                continue
-            except subprocess.TimeoutExpired:
-                print(f"    WARNING: TIC-80 export timed out")
-                continue
-
-        if not os.path.exists(zip_path):
-            return False
-
-        # Extract the zip into the output directory
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(out_dir)
-
-        return True
+def _run_tic80(fs_dir, cmd, timeout=30):
+    """Run a TIC-80 CLI command. Tries xvfb-run for headless, then direct."""
+    for prefix in [["xvfb-run", "-a"], []]:
+        try:
+            result = subprocess.run(
+                prefix + [TIC80_BIN, "--fs", fs_dir, "--cli", "--cmd", cmd],
+                capture_output=True, text=True, timeout=timeout,
+            )
+            return result
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            print(f"    WARNING: TIC-80 timed out")
+            continue
+    return None
 
 
 def has_tic80():
     """Check if TIC-80 CLI is available."""
-    for prefix in [[], ["xvfb-run", "-a"]]:
-        try:
-            result = subprocess.run(
-                prefix + [TIC80_BIN, "--cli", "--cmd", "exit"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-    return False
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_tic80(tmpdir, "exit", timeout=10)
+        return result is not None and result.returncode == 0
+
+
+def make_blank_cartridge(fs_dir):
+    """Use TIC-80 to create a valid blank .tic cartridge template."""
+    result = _run_tic80(fs_dir, "new lua & save blank.tic & exit")
+    blank_path = os.path.join(fs_dir, "blank.tic")
+    if result and os.path.exists(blank_path):
+        return open(blank_path, "rb").read()
+    return None
+
+
+def patch_cartridge_code(blank_tic_data, lua_source):
+    """Replace the code chunk in a valid .tic cartridge with new Lua source.
+
+    The .tic format uses typed chunks with 4-byte headers:
+      byte 0: chunk type (lower 5 bits = type, upper 3 bits = bank)
+      bytes 1-3: chunk size (24-bit little-endian)
+    """
+    out = bytearray()
+    pos = 0
+    replaced = False
+
+    while pos < len(blank_tic_data):
+        if pos + 4 > len(blank_tic_data):
+            break
+        chunk_type = blank_tic_data[pos]
+        chunk_size = (blank_tic_data[pos + 1]
+                      | (blank_tic_data[pos + 2] << 8)
+                      | (blank_tic_data[pos + 3] << 16))
+        ctype = chunk_type & 0x1F
+
+        if ctype == TIC_CHUNK_CODE:
+            # Replace code chunk with our game source
+            code_bytes = lua_source.encode("ascii", errors="replace")
+            out.append(chunk_type)
+            out += struct.pack("<I", len(code_bytes))[:3]
+            out += code_bytes
+            replaced = True
+        else:
+            # Copy chunk as-is
+            if chunk_size == 0:
+                out += blank_tic_data[pos:pos + 4]
+            else:
+                out += blank_tic_data[pos:pos + 4 + chunk_size]
+
+        pos += 4 + (chunk_size if chunk_size > 0 else 0)
+
+    if not replaced:
+        code_bytes = lua_source.encode("ascii", errors="replace")
+        out.append(TIC_CHUNK_CODE)
+        out += struct.pack("<I", len(code_bytes))[:3]
+        out += code_bytes
+
+    return bytes(out)
+
+
+def tic80_export_html(fs_dir, cart_name, out_dir):
+    """Use TIC-80 CLI to export a .tic cartridge to HTML.
+
+    The cart must already exist in fs_dir. Returns True on success.
+    """
+    zip_name = cart_name.replace(".tic", "-export.zip")
+    cmd = f"load {cart_name} & export html {zip_name} & exit"
+
+    result = _run_tic80(fs_dir, cmd)
+    stdout = result.stdout if result else ""
+    print(f"    tic80: {stdout.strip()}")
+
+    zip_path = os.path.join(fs_dir, zip_name)
+    if not os.path.exists(zip_path):
+        return False
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(out_dir)
+
+    return True
 
 
 # ── HTML Templates ──────────────────────────────────────────────────────
@@ -354,12 +369,29 @@ def build():
 
     use_tic80 = has_tic80()
     if use_tic80:
-        print(f"TIC-80 CLI found. Will export native HTML bundles.")
+        print("TIC-80 CLI found. Will export native HTML bundles.")
     else:
-        print(f"TIC-80 CLI not found. Using CDN fallback for WASM runtime.")
+        print("TIC-80 CLI not found. Using CDN fallback for WASM runtime.")
+
+    # If TIC-80 is available, create a blank cartridge template once
+    # then patch each game's code into it
+    blank_tic = None
+    tic80_fs = None
+    if use_tic80:
+        tic80_fs = tempfile.mkdtemp(prefix="tic80build_")
+        blank_tic = make_blank_cartridge(tic80_fs)
+        if blank_tic:
+            print(f"  Created blank cartridge template ({len(blank_tic)} bytes)")
+        else:
+            print("  WARNING: Could not create blank cartridge, falling back to CDN")
+            use_tic80 = False
 
     for game in games:
-        build_game(game, use_tic80)
+        build_game(game, use_tic80, blank_tic, tic80_fs)
+
+    # Clean up temp dir
+    if tic80_fs:
+        shutil.rmtree(tic80_fs, ignore_errors=True)
 
     build_gallery(games)
 
@@ -403,31 +435,25 @@ def discover_games():
     return games
 
 
-def build_game(game, use_tic80):
+def build_game(game, use_tic80, blank_tic, tic80_fs):
     """Build a single game page."""
     out_dir = os.path.join(OUTPUT_DIR, game["slug"])
-    os.makedirs(out_dir, exist_ok=True)
+    play_dir = os.path.join(out_dir, "play")
+    os.makedirs(play_dir, exist_ok=True)
 
-    # Generate .tic cartridge
-    tic_data = make_tic_cartridge(game["lua"])
+    if use_tic80 and blank_tic:
+        # Patch the blank cartridge with this game's code
+        cart_data = patch_cartridge_code(blank_tic, game["lua"])
+        cart_name = f"{game['slug']}.tic"
+        cart_path = os.path.join(tic80_fs, cart_name)
 
-    if use_tic80:
-        # Use TIC-80 CLI to export full HTML bundle
-        play_dir = os.path.join(out_dir, "play")
-        os.makedirs(play_dir, exist_ok=True)
+        with open(cart_path, "wb") as f:
+            f.write(cart_data)
 
-        # Write .tic to temp location for TIC-80 to load
-        with tempfile.NamedTemporaryFile(suffix=".tic", delete=False) as tmp:
-            tmp.write(tic_data)
-            tmp_tic = tmp.name
-
-        try:
-            success = tic80_export_html(tmp_tic, play_dir)
-        finally:
-            os.unlink(tmp_tic)
+        # Export via TIC-80 CLI (uses --fs so paths are relative)
+        success = tic80_export_html(tic80_fs, cart_name, play_dir)
 
         if success:
-            # Write wrapper page with gallery nav
             wrapper = GAME_PAGE_TEMPLATE.format(
                 title=html.escape(game["title"]),
                 description=html.escape(game["description"]),
@@ -439,25 +465,24 @@ def build_game(game, use_tic80):
             print(f"  Built: {game['slug']}/ (TIC-80 native export)")
             return
         else:
-            print(f"  WARNING: TIC-80 export failed for {game['slug']}, using fallback")
+            print(f"  WARNING: TIC-80 export failed for {game['slug']}, using CDN fallback")
 
-    # Fallback: CDN-based player
-    with open(os.path.join(out_dir, "cart.tic"), "wb") as f:
-        f.write(tic_data)
+    # Fallback: CDN-based player with our own .tic cartridge
+    if blank_tic:
+        cart_data = patch_cartridge_code(blank_tic, game["lua"])
+    else:
+        # No blank template available — write a minimal (possibly invalid) .tic
+        cart_data = game["lua"].encode("ascii", errors="replace")
+
+    with open(os.path.join(play_dir, "cart.tic"), "wb") as f:
+        f.write(cart_data)
 
     fallback = FALLBACK_GAME_TEMPLATE.format(
         title=html.escape(game["title"]),
     )
-    # Write the play page
-    play_dir = os.path.join(out_dir, "play")
-    os.makedirs(play_dir, exist_ok=True)
     with open(os.path.join(play_dir, "index.html"), "w") as f:
         f.write(fallback)
-    # Copy cart.tic into play dir
-    with open(os.path.join(play_dir, "cart.tic"), "wb") as f:
-        f.write(tic_data)
 
-    # Write wrapper page
     wrapper = GAME_PAGE_TEMPLATE.format(
         title=html.escape(game["title"]),
         description=html.escape(game["description"]),
