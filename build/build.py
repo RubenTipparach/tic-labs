@@ -134,11 +134,10 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 
 
 # CSS/JS injected into the TIC-80 native export's play/index.html
-# Canvas scaling works on all screen sizes; touch overrides are mobile-only
+# Pure CSS approach — !important overrides inline styles set by WASM runtime
 EXPORT_MOBILE_PATCH = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-  /* Always fill the viewport with the canvas */
   html, body {
     margin: 0 !important;
     padding: 0 !important;
@@ -146,62 +145,33 @@ EXPORT_MOBILE_PATCH = """
     height: 100% !important;
     overflow: hidden !important;
     background: #000 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
   }
   #game-frame {
     display: none !important;
   }
-  div.game, div#game, .emscripten, #canvas-container {
+  canvas {
     width: 100vw !important;
-    height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    height: auto !important;
+    aspect-ratio: 240 / 136 !important;
+    max-height: 100vh !important;
+    display: block !important;
+    margin: auto !important;
+    position: absolute !important;
+    top: 0 !important; bottom: 0 !important;
+    left: 0 !important; right: 0 !important;
+    object-fit: contain !important;
+    image-rendering: pixelated !important;
+    image-rendering: crisp-edges !important;
   }
   @media (hover: none) and (pointer: coarse) {
-    html, body {
-      touch-action: manipulation;
-    }
+    html, body { touch-action: manipulation; }
   }
 </style>
 <script>
-  // Auto-dismiss click-to-play overlay
   window.addEventListener('DOMContentLoaded', function() {
     var gf = document.getElementById('game-frame');
     if (gf) gf.click();
   });
-
-  // Scale canvas to fill viewport on ALL screen sizes
-  (function() {
-    function tic80_forceFullscreen() {
-      var canvas = document.querySelector('canvas');
-      if (!canvas) { requestAnimationFrame(tic80_forceFullscreen); return; }
-
-      function resize() {
-        var cw = canvas.width || 240;
-        var ch = canvas.height || 136;
-        var vw = window.innerWidth;
-        var vh = window.innerHeight;
-        var scale = Math.min(vw / cw, vh / ch);
-        canvas.style.width = Math.floor(cw * scale) + 'px';
-        canvas.style.height = Math.floor(ch * scale) + 'px';
-        canvas.style.imageRendering = 'pixelated';
-      }
-
-      resize();
-      window.addEventListener('resize', resize);
-      var observer = new MutationObserver(function() { resize(); });
-      observer.observe(canvas, { attributes: true, attributeFilter: ['style', 'width', 'height'] });
-    }
-    requestAnimationFrame(tic80_forceFullscreen);
-  })();
 </script>
 """
 
@@ -484,12 +454,19 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     html, body {{
       width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
-      display: flex; align-items: center; justify-content: center;
     }}
     canvas {{
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      display: block;
+      width: 100vw !important;
+      height: auto !important;
+      aspect-ratio: 240 / 136 !important;
+      max-height: 100vh !important;
+      display: block !important;
+      margin: auto !important;
+      position: absolute !important;
+      top: 0; bottom: 0; left: 0; right: 0;
+      object-fit: contain !important;
+      image-rendering: pixelated !important;
+      image-rendering: crisp-edges !important;
     }}
     @media (hover: none) and (pointer: coarse) {{
       html, body {{ touch-action: manipulation; }}
@@ -609,34 +586,6 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }};
   </script>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
-
-  <script>
-  // Force canvas to fill viewport on all screen sizes
-  (function() {{
-    function resizeCanvas() {{
-      var canvas = document.getElementById('canvas');
-      if (!canvas || !canvas.width || canvas.width < 2) {{
-        requestAnimationFrame(resizeCanvas);
-        return;
-      }}
-      var cw = canvas.width;
-      var ch = canvas.height;
-      var vw = window.innerWidth;
-      var vh = window.innerHeight;
-      var scale = Math.min(vw / cw, vh / ch);
-      canvas.style.width = Math.floor(cw * scale) + 'px';
-      canvas.style.height = Math.floor(ch * scale) + 'px';
-    }}
-    requestAnimationFrame(resizeCanvas);
-    window.addEventListener('resize', resizeCanvas);
-    var obs = new MutationObserver(resizeCanvas);
-    requestAnimationFrame(function waitCanvas() {{
-      var c = document.getElementById('canvas');
-      if (c) obs.observe(c, {{ attributes: true, attributeFilter: ['style','width','height'] }});
-      else requestAnimationFrame(waitCanvas);
-    }});
-  }})();
-  </script>
 
   <script>
   (function() {{
