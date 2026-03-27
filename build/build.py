@@ -136,21 +136,45 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 # CSS/JS injected into the TIC-80 native export's play/index.html
 # so the canvas fills the viewport on mobile
 EXPORT_MOBILE_PATCH = """
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-  canvas {
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
     width: 100% !important;
     height: 100% !important;
-    object-fit: contain !important;
+    overflow: hidden !important;
+    background: #000 !important;
+    touch-action: manipulation;
+  }
+  .game {
+    width: 100vw !important;
+    height: 100vh !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .game canvas, canvas {
+    width: 100vw !important;
+    height: auto !important;
+    aspect-ratio: 240 / 136 !important;
+    max-height: 100vh !important;
     image-rendering: pixelated !important;
     image-rendering: crisp-edges !important;
     display: block !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
+    object-fit: contain !important;
+  }
+  #game-frame {
+    display: none !important;
   }
 </style>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script>
+  // Auto-dismiss click-to-play overlay and load TIC-80 immediately
+  window.addEventListener('DOMContentLoaded', function() {
+    var gf = document.getElementById('game-frame');
+    if (gf) gf.click();
+  });
+</script>
 """
 
 
