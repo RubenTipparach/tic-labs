@@ -224,7 +224,10 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{title} - TIC-Labs</title>
   <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    * {{ margin: 0; padding: 0; box-sizing: border-box;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+    }}
     html, body {{ height: 100%; overflow: hidden; touch-action: manipulation; }}
     body {{
       background: #1a1c2c;
@@ -275,10 +278,10 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       bottom: 0;
       left: 0;
       right: 0;
-      height: 160px;
+      height: 280px;
       z-index: 1000;
       pointer-events: none;
-      padding: 10px 20px 20px;
+      padding: 10px 16px 24px;
     }}
     .touch-controls .dpad,
     .touch-controls .action-buttons {{
@@ -286,25 +289,23 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     }}
     .dpad {{
       position: absolute;
-      left: 20px;
-      bottom: 20px;
-      width: 130px;
-      height: 130px;
+      left: 16px;
+      bottom: 24px;
+      width: 260px;
+      height: 260px;
     }}
     .dpad-btn {{
       position: absolute;
-      width: 44px;
-      height: 44px;
-      background: rgba(255,255,255,0.15);
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 8px;
+      width: 88px;
+      height: 88px;
+      background: rgba(255,255,255,0.18);
+      border: 2px solid rgba(255,255,255,0.35);
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255,255,255,0.6);
-      font-size: 20px;
-      -webkit-user-select: none;
-      user-select: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 32px;
       touch-action: none;
     }}
     .dpad-btn.active {{
@@ -317,27 +318,25 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     .dpad-right {{ right: 0; top: 50%; transform: translateY(-50%); }}
     .action-buttons {{
       position: absolute;
-      right: 20px;
-      bottom: 20px;
-      width: 120px;
-      height: 120px;
+      right: 16px;
+      bottom: 24px;
+      width: 240px;
+      height: 240px;
     }}
     .action-btn {{
       position: absolute;
-      width: 52px;
-      height: 52px;
+      width: 104px;
+      height: 104px;
       border-radius: 50%;
-      background: rgba(255,255,255,0.15);
-      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.18);
+      border: 2px solid rgba(255,255,255,0.35);
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 16px;
+      font-size: 28px;
       font-weight: bold;
       font-family: 'Courier New', monospace;
-      -webkit-user-select: none;
-      user-select: none;
       touch-action: none;
     }}
     .action-btn.active {{
@@ -347,11 +346,30 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     .btn-a {{ right: 0; top: 50%; transform: translateY(-50%); }}
     .btn-b {{ left: 0; bottom: 0; }}
 
+    /* Landscape prompt overlay for portrait mobile */
+    .rotate-prompt {{
+      display: none;
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.85); z-index: 9999;
+      flex-direction: column; align-items: center; justify-content: center;
+      color: #7b8cff; font-family: 'Courier New', monospace; font-size: 18px;
+      text-align: center; gap: 16px;
+    }}
+    .rotate-prompt svg {{ width: 64px; height: 64px; fill: #7b8cff; }}
+    .rotate-prompt .dismiss {{
+      margin-top: 12px; padding: 8px 24px; background: #7b8cff; color: #000;
+      border: none; border-radius: 8px; font-size: 14px; font-family: inherit;
+      cursor: pointer;
+    }}
+
     @media (hover: none) and (pointer: coarse) {{
       .touch-controls {{ display: block; }}
       .info-bar {{ display: none; }}
       .top-bar {{ padding: 4px 10px; }}
       .top-bar h1 {{ font-size: 13px; }}
+    }}
+    @media (hover: none) and (pointer: coarse) and (orientation: portrait) {{
+      .rotate-prompt {{ display: flex; }}
     }}
   </style>
 </head>
@@ -365,6 +383,12 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     <span class="ctrl">{controls}</span>
     <span>{description}</span>
     <span>by {author}</span>
+  </div>
+
+  <div class="rotate-prompt" id="rotatePrompt">
+    <svg viewBox="0 0 24 24"><path d="M7.34 6.41L.86 12.9l6.49 6.48 6.49-6.48-6.5-6.49zM3.69 12.9l3.66-3.66L11 12.9l-3.66 3.66-3.65-3.66zm15.67-6.26A8.95 8.95 0 0 0 13 4V.76L8.76 5 13 9.24V6c1.67 0 3.33.64 4.6 1.92 2.56 2.56 2.56 6.72 0 9.28a6.51 6.51 0 0 1-7.29 1.31l-1.46 1.46a8.96 8.96 0 0 0 10.51-1.51c3.52-3.51 3.52-9.21 0-12.72z"/></svg>
+    <span>Rotate your device<br>for best experience</span>
+    <button class="dismiss" onclick="document.getElementById('rotatePrompt').style.display='none'">Play Anyway</button>
   </div>
 
   <div class="touch-controls">
@@ -382,11 +406,20 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
 
   <script>
   (function() {{
+    // Try to lock to landscape
+    if (screen.orientation && screen.orientation.lock) {{
+      screen.orientation.lock('landscape').catch(function() {{}});
+    }}
+
     var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     if (!isTouchDevice) return;
 
     var iframe = document.querySelector('.game-frame');
     var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
+
+    function haptic() {{
+      if (navigator.vibrate) navigator.vibrate(15);
+    }}
 
     function sendKey(btn, type) {{
       var key = btn.getAttribute('data-key');
@@ -403,7 +436,6 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
         }});
         target.dispatchEvent(evt);
       }} catch(e) {{
-        // Cross-origin fallback: dispatch on parent document
         var evt = new KeyboardEvent(type, {{
           key: key,
           code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
@@ -419,6 +451,7 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     function handleStart(e) {{
       e.preventDefault();
       this.classList.add('active');
+      haptic();
       sendKey(this, 'keydown');
     }}
 
@@ -444,6 +477,7 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
           if (btn === el) {{
             if (!btn.classList.contains('active')) {{
               btn.classList.add('active');
+              haptic();
               sendKey(btn, 'keydown');
             }}
           }} else {{
@@ -470,7 +504,10 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{title} - TIC-Labs</title>
   <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    * {{ margin: 0; padding: 0; box-sizing: border-box;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+    }}
     html, body {{
       width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
       touch-action: manipulation;
@@ -488,10 +525,10 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       bottom: 0;
       left: 0;
       right: 0;
-      height: 160px;
+      height: 280px;
       z-index: 1000;
       pointer-events: none;
-      padding: 10px 20px 20px;
+      padding: 10px 16px 24px;
     }}
     .touch-controls .dpad,
     .touch-controls .action-buttons {{
@@ -499,25 +536,23 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }}
     .dpad {{
       position: absolute;
-      left: 20px;
-      bottom: 20px;
-      width: 130px;
-      height: 130px;
+      left: 16px;
+      bottom: 24px;
+      width: 260px;
+      height: 260px;
     }}
     .dpad-btn {{
       position: absolute;
-      width: 44px;
-      height: 44px;
-      background: rgba(255,255,255,0.15);
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 8px;
+      width: 88px;
+      height: 88px;
+      background: rgba(255,255,255,0.18);
+      border: 2px solid rgba(255,255,255,0.35);
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255,255,255,0.6);
-      font-size: 20px;
-      -webkit-user-select: none;
-      user-select: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 32px;
       touch-action: none;
     }}
     .dpad-btn.active {{
@@ -530,27 +565,25 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     .dpad-right {{ right: 0; top: 50%; transform: translateY(-50%); }}
     .action-buttons {{
       position: absolute;
-      right: 20px;
-      bottom: 20px;
-      width: 120px;
-      height: 120px;
+      right: 16px;
+      bottom: 24px;
+      width: 240px;
+      height: 240px;
     }}
     .action-btn {{
       position: absolute;
-      width: 52px;
-      height: 52px;
+      width: 104px;
+      height: 104px;
       border-radius: 50%;
-      background: rgba(255,255,255,0.15);
-      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.18);
+      border: 2px solid rgba(255,255,255,0.35);
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 16px;
+      font-size: 28px;
       font-weight: bold;
       font-family: 'Courier New', monospace;
-      -webkit-user-select: none;
-      user-select: none;
       touch-action: none;
     }}
     .action-btn.active {{
@@ -560,14 +593,38 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     .btn-a {{ right: 0; top: 50%; transform: translateY(-50%); }}
     .btn-b {{ left: 0; bottom: 0; }}
 
+    .rotate-prompt {{
+      display: none;
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.85); z-index: 9999;
+      flex-direction: column; align-items: center; justify-content: center;
+      color: #7b8cff; font-family: 'Courier New', monospace; font-size: 18px;
+      text-align: center; gap: 16px;
+    }}
+    .rotate-prompt svg {{ width: 64px; height: 64px; fill: #7b8cff; }}
+    .rotate-prompt .dismiss {{
+      margin-top: 12px; padding: 8px 24px; background: #7b8cff; color: #000;
+      border: none; border-radius: 8px; font-size: 14px; font-family: inherit;
+      cursor: pointer;
+    }}
+
     @media (hover: none) and (pointer: coarse) {{
       .touch-controls {{ display: block; }}
+    }}
+    @media (hover: none) and (pointer: coarse) and (orientation: portrait) {{
+      .rotate-prompt {{ display: flex; }}
     }}
   </style>
 </head>
 <body>
   <div class="tic-scale-wrap">
     <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+  </div>
+
+  <div class="rotate-prompt" id="rotatePrompt">
+    <svg viewBox="0 0 24 24"><path d="M7.34 6.41L.86 12.9l6.49 6.48 6.49-6.48-6.5-6.49zM3.69 12.9l3.66-3.66L11 12.9l-3.66 3.66-3.65-3.66zm15.67-6.26A8.95 8.95 0 0 0 13 4V.76L8.76 5 13 9.24V6c1.67 0 3.33.64 4.6 1.92 2.56 2.56 2.56 6.72 0 9.28a6.51 6.51 0 0 1-7.29 1.31l-1.46 1.46a8.96 8.96 0 0 0 10.51-1.51c3.52-3.51 3.52-9.21 0-12.72z"/></svg>
+    <span>Rotate your device<br>for best experience</span>
+    <button class="dismiss" onclick="document.getElementById('rotatePrompt').style.display='none'">Play Anyway</button>
   </div>
 
   <div class="touch-controls">
@@ -584,6 +641,11 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <script>
+    // Try to lock to landscape
+    if (screen.orientation && screen.orientation.lock) {{
+      screen.orientation.lock('landscape').catch(function() {{}});
+    }}
+
     window.addEventListener("keydown", function(e) {{
       if([32,37,38,39,40].indexOf(e.keyCode)>-1) e.preventDefault();
     }}, false);
@@ -625,6 +687,10 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     var canvas = document.getElementById('canvas');
     var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
 
+    function haptic() {{
+      if (navigator.vibrate) navigator.vibrate(15);
+    }}
+
     function sendKey(btn, type) {{
       var key = btn.getAttribute('data-key');
       var keyCode = parseInt(btn.getAttribute('data-keycode'), 10);
@@ -643,6 +709,7 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     function handleStart(e) {{
       e.preventDefault();
       this.classList.add('active');
+      haptic();
       sendKey(this, 'keydown');
     }}
 
@@ -668,6 +735,7 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
           if (btn === el) {{
             if (!btn.classList.contains('active')) {{
               btn.classList.add('active');
+              haptic();
               sendKey(btn, 'keydown');
             }}
           }} else {{
