@@ -138,11 +138,11 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{title} - TIC-Labs</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ height: 100%; overflow: hidden; }}
+    html, body {{ height: 100%; overflow: hidden; touch-action: manipulation; }}
     body {{
       background: #1a1c2c;
       color: #e0e0e0;
@@ -184,6 +184,92 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       gap: 16px;
     }}
     .info-bar .ctrl {{ color: #7b8cff; }}
+
+    /* Mobile touch controls */
+    .touch-controls {{
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 160px;
+      z-index: 1000;
+      pointer-events: none;
+      padding: 10px 20px 20px;
+    }}
+    .touch-controls .dpad,
+    .touch-controls .action-buttons {{
+      pointer-events: auto;
+    }}
+    .dpad {{
+      position: absolute;
+      left: 20px;
+      bottom: 20px;
+      width: 130px;
+      height: 130px;
+    }}
+    .dpad-btn {{
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.6);
+      font-size: 20px;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }}
+    .dpad-btn.active {{
+      background: rgba(123,140,255,0.4);
+      border-color: rgba(123,140,255,0.7);
+    }}
+    .dpad-up    {{ top: 0; left: 50%; transform: translateX(-50%); }}
+    .dpad-down  {{ bottom: 0; left: 50%; transform: translateX(-50%); }}
+    .dpad-left  {{ left: 0; top: 50%; transform: translateY(-50%); }}
+    .dpad-right {{ right: 0; top: 50%; transform: translateY(-50%); }}
+    .action-buttons {{
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      width: 120px;
+      height: 120px;
+    }}
+    .action-btn {{
+      position: absolute;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.7);
+      font-size: 16px;
+      font-weight: bold;
+      font-family: 'Courier New', monospace;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }}
+    .action-btn.active {{
+      background: rgba(123,140,255,0.4);
+      border-color: rgba(123,140,255,0.7);
+    }}
+    .btn-a {{ right: 0; top: 50%; transform: translateY(-50%); }}
+    .btn-b {{ left: 0; bottom: 0; }}
+
+    @media (hover: none) and (pointer: coarse) {{
+      .touch-controls {{ display: block; }}
+      .info-bar {{ display: none; }}
+      .top-bar {{ padding: 4px 10px; }}
+      .top-bar h1 {{ font-size: 13px; }}
+    }}
   </style>
 </head>
 <body>
@@ -197,6 +283,97 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
     <span>{description}</span>
     <span>by {author}</span>
   </div>
+
+  <div class="touch-controls">
+    <div class="dpad">
+      <div class="dpad-btn dpad-up" data-key="ArrowUp" data-keycode="38">&#9650;</div>
+      <div class="dpad-btn dpad-down" data-key="ArrowDown" data-keycode="40">&#9660;</div>
+      <div class="dpad-btn dpad-left" data-key="ArrowLeft" data-keycode="37">&#9664;</div>
+      <div class="dpad-btn dpad-right" data-key="ArrowRight" data-keycode="39">&#9654;</div>
+    </div>
+    <div class="action-buttons">
+      <div class="action-btn btn-a" data-key="z" data-keycode="90">A</div>
+      <div class="action-btn btn-b" data-key="x" data-keycode="88">B</div>
+    </div>
+  </div>
+
+  <script>
+  (function() {{
+    var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (!isTouchDevice) return;
+
+    var iframe = document.querySelector('.game-frame');
+    var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
+
+    function sendKey(btn, type) {{
+      var key = btn.getAttribute('data-key');
+      var keyCode = parseInt(btn.getAttribute('data-keycode'), 10);
+      try {{
+        var target = iframe.contentWindow.document;
+        var evt = new KeyboardEvent(type, {{
+          key: key,
+          code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+          keyCode: keyCode,
+          which: keyCode,
+          bubbles: true,
+          cancelable: true
+        }});
+        target.dispatchEvent(evt);
+      }} catch(e) {{
+        // Cross-origin fallback: dispatch on parent document
+        var evt = new KeyboardEvent(type, {{
+          key: key,
+          code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+          keyCode: keyCode,
+          which: keyCode,
+          bubbles: true,
+          cancelable: true
+        }});
+        document.dispatchEvent(evt);
+      }}
+    }}
+
+    function handleStart(e) {{
+      e.preventDefault();
+      this.classList.add('active');
+      sendKey(this, 'keydown');
+    }}
+
+    function handleEnd(e) {{
+      e.preventDefault();
+      this.classList.remove('active');
+      sendKey(this, 'keyup');
+    }}
+
+    buttons.forEach(function(btn) {{
+      btn.addEventListener('touchstart', handleStart, {{ passive: false }});
+      btn.addEventListener('touchend', handleEnd, {{ passive: false }});
+      btn.addEventListener('touchcancel', handleEnd, {{ passive: false }});
+    }});
+
+    // Handle dragging finger between d-pad buttons
+    document.querySelector('.dpad').addEventListener('touchmove', function(e) {{
+      e.preventDefault();
+      var touch = e.touches[0];
+      var el = document.elementFromPoint(touch.clientX, touch.clientY);
+      buttons.forEach(function(btn) {{
+        if (btn.closest('.dpad')) {{
+          if (btn === el) {{
+            if (!btn.classList.contains('active')) {{
+              btn.classList.add('active');
+              sendKey(btn, 'keydown');
+            }}
+          }} else {{
+            if (btn.classList.contains('active')) {{
+              btn.classList.remove('active');
+              sendKey(btn, 'keyup');
+            }}
+          }}
+        }}
+      }});
+    }}, {{ passive: false }});
+  }})();
+  </script>
 </body>
 </html>
 """
@@ -207,21 +384,118 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{title} - TIC-Labs</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ height: 100%; overflow: hidden; background: #1a1c2c; }}
+    html, body {{ height: 100%; overflow: hidden; background: #1a1c2c; touch-action: manipulation; }}
     canvas {{
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       width: 100%;
       height: 100%;
     }}
+
+    /* Mobile touch controls */
+    .touch-controls {{
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 160px;
+      z-index: 1000;
+      pointer-events: none;
+      padding: 10px 20px 20px;
+    }}
+    .touch-controls .dpad,
+    .touch-controls .action-buttons {{
+      pointer-events: auto;
+    }}
+    .dpad {{
+      position: absolute;
+      left: 20px;
+      bottom: 20px;
+      width: 130px;
+      height: 130px;
+    }}
+    .dpad-btn {{
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.6);
+      font-size: 20px;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }}
+    .dpad-btn.active {{
+      background: rgba(123,140,255,0.4);
+      border-color: rgba(123,140,255,0.7);
+    }}
+    .dpad-up    {{ top: 0; left: 50%; transform: translateX(-50%); }}
+    .dpad-down  {{ bottom: 0; left: 50%; transform: translateX(-50%); }}
+    .dpad-left  {{ left: 0; top: 50%; transform: translateY(-50%); }}
+    .dpad-right {{ right: 0; top: 50%; transform: translateY(-50%); }}
+    .action-buttons {{
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      width: 120px;
+      height: 120px;
+    }}
+    .action-btn {{
+      position: absolute;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.7);
+      font-size: 16px;
+      font-weight: bold;
+      font-family: 'Courier New', monospace;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }}
+    .action-btn.active {{
+      background: rgba(123,140,255,0.4);
+      border-color: rgba(123,140,255,0.7);
+    }}
+    .btn-a {{ right: 0; top: 50%; transform: translateY(-50%); }}
+    .btn-b {{ left: 0; bottom: 0; }}
+
+    @media (hover: none) and (pointer: coarse) {{
+      .touch-controls {{ display: block; }}
+    }}
   </style>
 </head>
 <body>
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+
+  <div class="touch-controls">
+    <div class="dpad">
+      <div class="dpad-btn dpad-up" data-key="ArrowUp" data-keycode="38">&#9650;</div>
+      <div class="dpad-btn dpad-down" data-key="ArrowDown" data-keycode="40">&#9660;</div>
+      <div class="dpad-btn dpad-left" data-key="ArrowLeft" data-keycode="37">&#9664;</div>
+      <div class="dpad-btn dpad-right" data-key="ArrowRight" data-keycode="39">&#9654;</div>
+    </div>
+    <div class="action-buttons">
+      <div class="action-btn btn-a" data-key="z" data-keycode="90">A</div>
+      <div class="action-btn btn-b" data-key="x" data-keycode="88">B</div>
+    </div>
+  </div>
+
   <script>
     window.addEventListener("keydown", function(e) {{
       if([32,37,38,39,40].indexOf(e.keyCode)>-1) e.preventDefault();
@@ -236,6 +510,71 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }};
   </script>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
+
+  <script>
+  (function() {{
+    var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (!isTouchDevice) return;
+
+    var canvas = document.getElementById('canvas');
+    var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
+
+    function sendKey(btn, type) {{
+      var key = btn.getAttribute('data-key');
+      var keyCode = parseInt(btn.getAttribute('data-keycode'), 10);
+      var evt = new KeyboardEvent(type, {{
+        key: key,
+        code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+        keyCode: keyCode,
+        which: keyCode,
+        bubbles: true,
+        cancelable: true
+      }});
+      canvas.dispatchEvent(evt);
+      document.dispatchEvent(evt);
+    }}
+
+    function handleStart(e) {{
+      e.preventDefault();
+      this.classList.add('active');
+      sendKey(this, 'keydown');
+    }}
+
+    function handleEnd(e) {{
+      e.preventDefault();
+      this.classList.remove('active');
+      sendKey(this, 'keyup');
+    }}
+
+    buttons.forEach(function(btn) {{
+      btn.addEventListener('touchstart', handleStart, {{ passive: false }});
+      btn.addEventListener('touchend', handleEnd, {{ passive: false }});
+      btn.addEventListener('touchcancel', handleEnd, {{ passive: false }});
+    }});
+
+    // Handle dragging finger between d-pad buttons
+    document.querySelector('.dpad').addEventListener('touchmove', function(e) {{
+      e.preventDefault();
+      var touch = e.touches[0];
+      var el = document.elementFromPoint(touch.clientX, touch.clientY);
+      buttons.forEach(function(btn) {{
+        if (btn.closest('.dpad')) {{
+          if (btn === el) {{
+            if (!btn.classList.contains('active')) {{
+              btn.classList.add('active');
+              sendKey(btn, 'keydown');
+            }}
+          }} else {{
+            if (btn.classList.contains('active')) {{
+              btn.classList.remove('active');
+              sendKey(btn, 'keyup');
+            }}
+          }}
+        }}
+      }});
+    }}, {{ passive: false }});
+  }})();
+  </script>
 </body>
 </html>
 """
@@ -277,6 +616,11 @@ GALLERY_TEMPLATE = """<!DOCTYPE html>
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 24px;
+    }}
+    @media (max-width: 480px) {{
+      .banner {{ padding: 32px 16px 20px; }}
+      .banner h1 {{ font-size: 28px; letter-spacing: 2px; }}
+      .gallery {{ padding: 16px 12px; gap: 16px; grid-template-columns: 1fr; }}
     }}
     .card {{
       background: #1a1a2e;
