@@ -127,7 +127,49 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(out_dir)
 
+    # Post-process the exported HTML to add mobile-friendly canvas scaling
+    patch_exported_html(out_dir)
+
     return True
+
+
+# CSS/JS injected into the TIC-80 native export's play/index.html
+# so the canvas fills the viewport on mobile
+EXPORT_MOBILE_PATCH = """
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    image-rendering: pixelated !important;
+    image-rendering: crisp-edges !important;
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+  }
+</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+"""
+
+
+def patch_exported_html(out_dir):
+    """Inject mobile-friendly styles into TIC-80's exported HTML."""
+    index_path = os.path.join(out_dir, "index.html")
+    if not os.path.exists(index_path):
+        return
+    with open(index_path, "r") as f:
+        content = f.read()
+    # Inject our styles right after <head> or at the start
+    if "<head>" in content:
+        content = content.replace("<head>", "<head>" + EXPORT_MOBILE_PATCH, 1)
+    elif "<HEAD>" in content:
+        content = content.replace("<HEAD>", "<HEAD>" + EXPORT_MOBILE_PATCH, 1)
+    else:
+        content = EXPORT_MOBILE_PATCH + content
+    with open(index_path, "w") as f:
+        f.write(content)
 
 
 # ── HTML Templates ──────────────────────────────────────────────────────
@@ -299,31 +341,10 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
 
   <script>
   (function() {{
-    // Make TIC-80 canvas fill the iframe on load
-    var iframe = document.querySelector('.game-frame');
-    iframe.addEventListener('load', function() {{
-      try {{
-        var doc = iframe.contentDocument || iframe.contentWindow.document;
-        var canvas = doc.querySelector('canvas');
-        if (canvas) {{
-          canvas.style.width = '100%';
-          canvas.style.height = '100%';
-          canvas.style.objectFit = 'contain';
-          canvas.style.imageRendering = 'pixelated';
-        }}
-        doc.body.style.margin = '0';
-        doc.body.style.padding = '0';
-        doc.body.style.overflow = 'hidden';
-        doc.body.style.background = '#000';
-        doc.body.style.width = '100%';
-        doc.body.style.height = '100%';
-        doc.documentElement.style.height = '100%';
-      }} catch(e) {{}}
-    }});
-
     var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     if (!isTouchDevice) return;
 
+    var iframe = document.querySelector('.game-frame');
     var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
 
     function sendKey(btn, type) {{
