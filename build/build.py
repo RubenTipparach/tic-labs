@@ -141,28 +141,11 @@ EXPORT_MOBILE_PATCH = """
   html, body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
+    width: 100vw !important;
+    height: 100vh !important;
     overflow: hidden !important;
     background: #000 !important;
     touch-action: manipulation;
-  }
-  .game {
-    width: 100vw !important;
-    height: 100vh !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-  .game canvas, canvas {
-    width: 100vw !important;
-    height: auto !important;
-    aspect-ratio: 240 / 136 !important;
-    max-height: 100vh !important;
-    image-rendering: pixelated !important;
-    image-rendering: crisp-edges !important;
-    display: block !important;
-    object-fit: contain !important;
   }
   #game-frame {
     display: none !important;
@@ -174,6 +157,27 @@ EXPORT_MOBILE_PATCH = """
     var gf = document.getElementById('game-frame');
     if (gf) gf.click();
   });
+
+  // Scale canvas to fill viewport using CSS transform
+  // This works regardless of what the WASM runtime sets on the canvas
+  function tic80_scaleCanvas() {
+    var canvas = document.querySelector('canvas');
+    if (!canvas || !canvas.width || canvas.width < 2) {
+      requestAnimationFrame(tic80_scaleCanvas);
+      return;
+    }
+    var scaleX = window.innerWidth / canvas.width;
+    var scaleY = window.innerHeight / canvas.height;
+    var scale = Math.min(scaleX, scaleY);
+    canvas.style.transformOrigin = '0 0';
+    canvas.style.transform = 'scale(' + scale + ')';
+    canvas.style.position = 'absolute';
+    canvas.style.top = ((window.innerHeight - canvas.height * scale) / 2) + 'px';
+    canvas.style.left = ((window.innerWidth - canvas.width * scale) / 2) + 'px';
+    canvas.style.imageRendering = 'pixelated';
+  }
+  requestAnimationFrame(tic80_scaleCanvas);
+  window.addEventListener('resize', function() { requestAnimationFrame(tic80_scaleCanvas); });
 </script>
 """
 
