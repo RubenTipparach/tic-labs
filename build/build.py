@@ -141,43 +141,66 @@ EXPORT_MOBILE_PATCH = """
   html, body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
+    width: 100% !important;
+    height: 100% !important;
     overflow: hidden !important;
     background: #000 !important;
     touch-action: manipulation;
   }
+  /* Hide TIC-80's click-to-play overlay */
   #game-frame {
     display: none !important;
   }
+  /* Force the canvas wrapper (div.game or any parent) to fill viewport */
+  div.game, div#game, .emscripten, #canvas-container {
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
 </style>
 <script>
-  // Auto-dismiss click-to-play overlay and load TIC-80 immediately
+  // Auto-dismiss click-to-play overlay
   window.addEventListener('DOMContentLoaded', function() {
     var gf = document.getElementById('game-frame');
     if (gf) gf.click();
   });
 
-  // Scale canvas to fill viewport using CSS transform
-  // This works regardless of what the WASM runtime sets on the canvas
-  function tic80_scaleCanvas() {
+  // Override TIC-80 runtime's canvas sizing to fill viewport
+  // The runtime sets inline width/height on the canvas - we override
+  // continuously using a MutationObserver + resize listener
+  function tic80_forceFullscreen() {
     var canvas = document.querySelector('canvas');
-    if (!canvas || !canvas.width || canvas.width < 2) {
-      requestAnimationFrame(tic80_scaleCanvas);
-      return;
+    if (!canvas) { requestAnimationFrame(tic80_forceFullscreen); return; }
+
+    function resize() {
+      // TIC-80 native resolution is 240x136 (16:9-ish)
+      var cw = canvas.width || 240;
+      var ch = canvas.height || 136;
+      var vw = window.innerWidth;
+      var vh = window.innerHeight;
+      var scale = Math.min(vw / cw, vh / ch);
+      var w = Math.floor(cw * scale);
+      var h = Math.floor(ch * scale);
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      canvas.style.imageRendering = 'pixelated';
     }
-    var scaleX = window.innerWidth / canvas.width;
-    var scaleY = window.innerHeight / canvas.height;
-    var scale = Math.min(scaleX, scaleY);
-    canvas.style.transformOrigin = '0 0';
-    canvas.style.transform = 'scale(' + scale + ')';
-    canvas.style.position = 'absolute';
-    canvas.style.top = ((window.innerHeight - canvas.height * scale) / 2) + 'px';
-    canvas.style.left = ((window.innerWidth - canvas.width * scale) / 2) + 'px';
-    canvas.style.imageRendering = 'pixelated';
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Re-apply whenever the runtime tries to change inline styles
+    var observer = new MutationObserver(function() { resize(); });
+    observer.observe(canvas, { attributes: true, attributeFilter: ['style', 'width', 'height'] });
   }
-  requestAnimationFrame(tic80_scaleCanvas);
-  window.addEventListener('resize', function() { requestAnimationFrame(tic80_scaleCanvas); });
+  requestAnimationFrame(tic80_forceFullscreen);
 </script>
 """
 
@@ -458,14 +481,15 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <title>{title} - TIC-Labs</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ height: 100%; overflow: hidden; background: #000; touch-action: manipulation; margin: 0; }}
+    html, body {{
+      width: 100%; height: 100%; overflow: hidden; background: #000;
+      touch-action: manipulation; margin: 0;
+      display: flex; align-items: center; justify-content: center;
+    }}
     canvas {{
       image-rendering: pixelated;
       image-rendering: crisp-edges;
-      width: 100%;
-      height: 100%;
       display: block;
-      object-fit: contain;
     }}
 
     /* Mobile touch controls */
@@ -582,6 +606,35 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }};
   </script>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
+
+  <script>
+  // Force canvas to fill viewport while maintaining aspect ratio
+  (function() {{
+    function resizeCanvas() {{
+      var canvas = document.getElementById('canvas');
+      if (!canvas || !canvas.width || canvas.width < 2) {{
+        requestAnimationFrame(resizeCanvas);
+        return;
+      }}
+      var cw = canvas.width;
+      var ch = canvas.height;
+      var vw = window.innerWidth;
+      var vh = window.innerHeight;
+      var scale = Math.min(vw / cw, vh / ch);
+      canvas.style.width = Math.floor(cw * scale) + 'px';
+      canvas.style.height = Math.floor(ch * scale) + 'px';
+    }}
+    requestAnimationFrame(resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    // Re-apply whenever WASM runtime changes canvas style
+    var obs = new MutationObserver(resizeCanvas);
+    requestAnimationFrame(function waitCanvas() {{
+      var c = document.getElementById('canvas');
+      if (c) obs.observe(c, {{ attributes: true, attributeFilter: ['style','width','height'] }});
+      else requestAnimationFrame(waitCanvas);
+    }});
+  }})();
+  </script>
 
   <script>
   (function() {{
