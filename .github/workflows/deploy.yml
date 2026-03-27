@@ -2,7 +2,7 @@ name: Build & Deploy TIC-80 Gallery
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
     paths:
       - 'games/**'
       - 'build/**'
