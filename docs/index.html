@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TIC-Labs - Game Gallery</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0f0f1a;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      min-height: 100vh;
+    }
+    .banner {
+      text-align: center;
+      padding: 48px 24px 32px;
+      background: linear-gradient(180deg, #151530 0%, #0f0f1a 100%);
+    }
+    .banner h1 {
+      font-size: 36px;
+      color: #fff;
+      letter-spacing: 4px;
+      margin-bottom: 8px;
+    }
+    .banner h1 span { color: #7b8cff; }
+    .banner p {
+      color: #888;
+      font-size: 14px;
+    }
+    .gallery {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: #7b8cff;
+      box-shadow: 0 8px 32px rgba(100, 120, 255, 0.2);
+    }
+    .card-preview {
+      height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      background: #1a1a2e;
+    }
+    .card-body {
+      padding: 16px;
+    }
+    .card-body h2 {
+      font-size: 18px;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .card-body p {
+      font-size: 12px;
+      color: #888;
+      line-height: 1.5;
+    }
+    .card-body .author {
+      font-size: 11px;
+      color: #555;
+      margin-top: 8px;
+    }
+    .footer {
+      text-align: center;
+      padding: 32px;
+      color: #444;
+      font-size: 12px;
+    }
+    .footer a { color: #7b8cff; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+    .empty {
+      text-align: center;
+      padding: 64px 24px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <h1>TIC-<span>Labs</span></h1>
+    <p>A collection of TIC-80 games</p>
+  </div>
+  <div class="gallery">
+    
+    <a class="card" href="lunar-lander/">
+      <div class="card-preview" style="background: #1a1a2e;">
+        <span style="font-size:32px; color:#fff; opacity:0.7;">&#9681;</span>
+      </div>
+      <div class="card-body">
+        <h2>Lunar Lander</h2>
+        <p>Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!</p>
+        <div class="author">by tic-labs</div>
+      </div>
+    </a>
+
+  </div>
+  <div class="footer">
+    Powered by <a href="https://tic80.com">TIC-80</a> |
+    Built with TIC-Labs
+  </div>
+</body>
+</html>
