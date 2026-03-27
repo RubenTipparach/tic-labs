@@ -6,116 +6,141 @@
   <title>Lunar Lander - TIC-Labs</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
     body {
-      background: #0f0f1a;
+      background: #1a1c2c;
       color: #e0e0e0;
       font-family: 'Courier New', monospace;
       display: flex;
       flex-direction: column;
       align-items: center;
-      min-height: 100vh;
     }
-    .header {
-      padding: 16px 24px;
+    .top-bar {
       width: 100%;
-      max-width: 960px;
+      padding: 6px 16px;
+      background: #0f0f1a;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
+      flex-shrink: 0;
+      z-index: 10;
     }
-    .header a {
+    .top-bar a {
       color: #7b8cff;
       text-decoration: none;
-      font-size: 14px;
-    }
-    .header a:hover { text-decoration: underline; }
-    .header h1 {
-      font-size: 20px;
-      color: #fff;
-    }
-    .game-container {
-      background: #000;
-      border: 2px solid #333;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 0 40px rgba(100, 120, 255, 0.15);
-    }
-    #game-canvas {
-      display: block;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
-    .info {
-      max-width: 960px;
-      width: 100%;
-      padding: 16px 24px;
-      color: #888;
       font-size: 13px;
     }
-    .info .desc { color: #bbb; margin-bottom: 8px; }
-    .info .controls { color: #7b8cff; }
-    .loading {
+    .top-bar a:hover { text-decoration: underline; }
+    .top-bar h1 {
+      font-size: 15px;
+      color: #fff;
+      font-weight: normal;
+    }
+    .game-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      position: relative;
+    }
+    #click-to-play {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      cursor: pointer;
+      z-index: 5;
+      background: rgba(26, 28, 44, 0.85);
+    }
+    #click-to-play span {
       color: #7b8cff;
-      padding: 40px;
-      text-align: center;
-      font-size: 16px;
+      font-size: 20px;
+      letter-spacing: 2px;
     }
-    .error {
-      color: #ff6b6b;
-      padding: 20px;
-      text-align: center;
+    #click-to-play .sub {
+      color: #566c86;
+      font-size: 12px;
+      margin-top: 8px;
+      letter-spacing: 0;
     }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: contain;
+    }
+    .info-bar {
+      width: 100%;
+      padding: 4px 16px;
+      background: #0f0f1a;
+      font-size: 11px;
+      color: #566c86;
+      flex-shrink: 0;
+      display: flex;
+      gap: 16px;
+    }
+    .info-bar .ctrl { color: #7b8cff; }
   </style>
 </head>
 <body>
-  <div class="header">
+  <div class="top-bar">
     <a href="../">&larr; Gallery</a>
     <h1>Lunar Lander</h1>
   </div>
-  <div class="game-container">
-    <div id="loading" class="loading">Loading TIC-80...</div>
-    <canvas id="game-canvas" width="480" height="272" style="display:none;"></canvas>
+  <div class="game-wrap">
+    <div id="click-to-play">
+      <span>CLICK TO PLAY</span>
+      <div class="sub">Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!</div>
+    </div>
+    <canvas id="canvas"
+            oncontextmenu="event.preventDefault()"
+            tabindex="0"></canvas>
   </div>
-  <div class="info">
-    <div class="desc">Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!</div>
-    <div class="controls">Arrow keys to rotate, Z to thrust</div>
-    <div style="margin-top:8px; color:#555;">by tic-labs</div>
+  <div class="info-bar">
+    <span class="ctrl">Arrow keys to rotate, Z to thrust</span>
+    <span>by tic-labs</span>
   </div>
 
   <script>
-    // TIC-80 WASM Player Loader
-    // Embeds the game Lua source and runs it via the TIC-80 WASM runtime
-    const GAME_LUA = "-- title:  Lunar Lander\n-- author: tic-labs\n-- desc:   Land the lunar module safely on the landing pad\n-- script: lua\n\n-- game state\nlocal ship = {\n  x = 120, y = 20,\n  vx = 0.3, vy = 0,\n  fuel = 100,\n  angle = 0,\n  thrust = false,\n  alive = true,\n  landed = false\n}\n\nlocal GRAVITY = 0.012\nlocal THRUST_POWER = 0.035\nlocal ROTATE_SPEED = 3\nlocal MAX_LAND_VY = 0.6\nlocal MAX_LAND_VX = 0.4\n\n-- terrain\nlocal terrain = {}\nlocal pad_x = 0\nlocal pad_w = 24\n\nlocal stars = {}\n\nlocal state = \"playing\" -- playing, landed, crashed\nlocal msg_timer = 0\n\nfunction init()\n  -- generate starfield\n  stars = {}\n  for i = 1, 40 do\n    stars[i] = {\n      x = math.random(0, 239),\n      y = math.random(0, 100),\n      b = math.random(1, 3)\n    }\n  end\n\n  -- generate terrain\n  terrain = {}\n  local segments = 20\n  local seg_w = 240 / segments\n\n  -- pick a random landing pad position\n  local pad_seg = math.random(4, segments - 4)\n  pad_x = (pad_seg - 1) * seg_w\n\n  for i = 0, segments do\n    local tx = i * seg_w\n    local ty\n    if i == pad_seg or i == pad_seg + 1 then\n      -- flat landing pad\n      ty = 105\n    else\n      ty = 95 + math.random(0, 25)\n    end\n    table.insert(terrain, {x = tx, y = ty})\n  end\n\n  -- reset ship\n  ship.x = math.random(40, 200)\n  ship.y = 20\n  ship.vx = (math.random() - 0.5) * 0.6\n  ship.vy = 0\n  ship.fuel = 100\n  ship.angle = 0\n  ship.thrust = false\n  ship.alive = true\n  ship.landed = false\n  state = \"playing\"\n  msg_timer = 0\nend\n\ninit()\n\nfunction get_terrain_y(px)\n  -- interpolate terrain height at position px\n  for i = 1, #terrain - 1 do\n    local t1 = terrain[i]\n    local t2 = terrain[i + 1]\n    if px >= t1.x and px <= t2.x then\n      local frac = (px - t1.x) / (t2.x - t1.x)\n      return t1.y + (t2.y - t1.y) * frac\n    end\n  end\n  return 136\nend\n\nfunction TIC()\n  if state == \"playing\" then\n    update_playing()\n  else\n    msg_timer = msg_timer + 1\n    if msg_timer > 180 or btnp(4) then\n      init()\n    end\n  end\n\n  draw()\nend\n\nfunction update_playing()\n  ship.thrust = false\n\n  -- rotate\n  if btn(2) then ship.angle = ship.angle - ROTATE_SPEED end\n  if btn(3) then ship.angle = ship.angle + ROTATE_SPEED end\n\n  -- thrust\n  if btn(4) and ship.fuel > 0 then\n    local rad = math.rad(ship.angle - 90)\n    ship.vx = ship.vx + math.cos(rad) * THRUST_POWER\n    ship.vy = ship.vy + math.sin(rad) * THRUST_POWER\n    ship.fuel = ship.fuel - 0.3\n    ship.thrust = true\n    if ship.fuel < 0 then ship.fuel = 0 end\n  end\n\n  -- gravity\n  ship.vy = ship.vy + GRAVITY\n\n  -- move\n  ship.x = ship.x + ship.vx\n  ship.y = ship.y + ship.vy\n\n  -- wrap horizontal\n  if ship.x < 0 then ship.x = 240 end\n  if ship.x > 240 then ship.x = 0 end\n\n  -- check ground collision\n  local ground_y = get_terrain_y(ship.x)\n  if ship.y + 4 >= ground_y then\n    ship.y = ground_y - 4\n    -- check if on landing pad\n    local on_pad = ship.x >= pad_x and ship.x <= pad_x + pad_w\n    local safe_vy = math.abs(ship.vy) < MAX_LAND_VY\n    local safe_vx = math.abs(ship.vx) < MAX_LAND_VX\n    local safe_angle = math.abs(ship.angle % 360) < 15 or math.abs(ship.angle % 360) > 345\n\n    if on_pad and safe_vy and safe_vx and safe_angle then\n      state = \"landed\"\n      ship.landed = true\n    else\n      state = \"crashed\"\n      ship.alive = false\n    end\n    ship.vx = 0\n    ship.vy = 0\n  end\n\n  -- ceiling\n  if ship.y < 0 then\n    ship.y = 0\n    ship.vy = 0\n  end\nend\n\nfunction draw()\n  cls(0)\n\n  -- stars\n  for _, s in ipairs(stars) do\n    pix(s.x, s.y, 12 + s.b)\n  end\n\n  -- terrain\n  for i = 1, #terrain - 1 do\n    local t1 = terrain[i]\n    local t2 = terrain[i + 1]\n    -- fill terrain\n    for x = math.floor(t1.x), math.floor(t2.x) do\n      local frac = (x - t1.x) / (t2.x - t1.x)\n      local y = math.floor(t1.y + (t2.y - t1.y) * frac)\n      line(x, y, x, 136, 4)\n    end\n    line(t1.x, t1.y, t2.x, t2.y, 6)\n  end\n\n  -- landing pad\n  rect(pad_x, 103, pad_w, 3, 11)\n\n  -- landing pad markers\n  line(pad_x, 100, pad_x, 103, 11)\n  line(pad_x + pad_w, 100, pad_x + pad_w, 103, 11)\n\n  -- ship\n  draw_ship()\n\n  -- HUD\n  draw_hud()\n\n  -- messages\n  if state == \"landed\" then\n    local score = math.floor(ship.fuel * 10)\n    print(\"LANDED SAFELY!\", 75, 50, 11, false, 1, true)\n    print(\"Score: \" .. score, 85, 60, 11, false, 1, true)\n    print(\"Press Z to retry\", 68, 75, 15, false, 1, true)\n  elseif state == \"crashed\" then\n    print(\"CRASHED!\", 90, 50, 2, false, 1, true)\n    print(\"Press Z to retry\", 68, 65, 15, false, 1, true)\n  end\nend\n\nfunction draw_ship()\n  local rad = math.rad(ship.angle)\n  local cx, cy = ship.x, ship.y\n  local size = 4\n\n  if not ship.alive and state == \"crashed\" then\n    -- explosion effect\n    local t = msg_timer\n    if t < 30 then\n      for i = 1, 8 do\n        local a = (i / 8) * math.pi * 2\n        local r = t * 0.8\n        local ex = cx + math.cos(a) * r\n        local ey = cy + math.sin(a) * r\n        circ(ex, ey, 2 - t * 0.05, 2 + (i % 3))\n      end\n    end\n    return\n  end\n\n  -- ship body (triangle)\n  local cos_a = math.cos(rad)\n  local sin_a = math.sin(rad)\n\n  -- nose\n  local nx = cx + sin_a * (-size)\n  local ny = cy + cos_a * (size)\n\n  -- left wing\n  local lx = cx + cos_a * (-size * 0.7) + sin_a * (size * 0.5)\n  local ly = cy + sin_a * (size * 0.7) + cos_a * (-size * 0.5)\n\n  -- right wing\n  local rx = cx + cos_a * (size * 0.7) + sin_a * (size * 0.5)\n  local ry = cy + sin_a * (-size * 0.7) + cos_a * (-size * 0.5)\n\n  tri(nx, ny, lx, ly, rx, ry, 12)\n  -- outline\n  line(nx, ny, lx, ly, 15)\n  line(nx, ny, rx, ry, 15)\n  line(lx, ly, rx, ry, 15)\n\n  -- thrust flame\n  if ship.thrust then\n    local fx = cx + sin_a * (size * 0.8)\n    local fy = cy + cos_a * (-size * 0.8)\n    local fsize = 2 + math.random() * 2\n    local flame_rad = math.rad(ship.angle)\n    local ffx = fx + math.sin(flame_rad) * fsize\n    local ffy = fy - math.cos(flame_rad) * fsize\n    line(fx, fy, ffx, ffy, 3)\n    pix(ffx, ffy, 2)\n  end\nend\n\nfunction draw_hud()\n  -- fuel bar background\n  rect(4, 4, 52, 6, 1)\n  -- fuel bar fill\n  local fw = math.floor(ship.fuel * 0.5)\n  local fc = 11\n  if ship.fuel < 30 then fc = 2 end\n  if ship.fuel < 15 then fc = 6 end\n  rect(5, 5, fw, 4, fc)\n  print(\"FUEL\", 6, 5, 15, false, 1, false)\n\n  -- velocity indicators\n  local vx_str = string.format(\"VX:%.1f\", math.abs(ship.vx))\n  local vy_str = string.format(\"VY:%.1f\", math.abs(ship.vy))\n\n  local vx_color = math.abs(ship.vx) < MAX_LAND_VX and 11 or 2\n  local vy_color = math.abs(ship.vy) < MAX_LAND_VY and 11 or 2\n\n  print(vx_str, 180, 4, vx_color, false, 1, true)\n  print(vy_str, 180, 12, vy_color, false, 1, true)\n\n  -- altitude\n  local alt = math.floor(get_terrain_y(ship.x) - ship.y - 4)\n  if alt < 0 then alt = 0 end\n  print(\"ALT:\" .. alt, 180, 20, 15, false, 1, true)\n\n  -- controls hint\n  if state == \"playing\" then\n    print(\"< > ROTATE  Z THRUST\", 45, 130, 13, false, 1, true)\n  end\nend\n";
-  </script>
-  <script src="../tic80-player/tic80.js" defer></script>
-  <script>
-    // Initialize TIC-80 when the runtime is ready
-    window.addEventListener('load', function() {
-      var loading = document.getElementById('loading');
-      var canvas = document.getElementById('game-canvas');
-
-      // Check if TIC-80 Module is available
-      if (typeof TIC80 !== 'undefined') {
-        loading.style.display = 'none';
-        canvas.style.display = 'block';
-        TIC80({
-          canvas: canvas,
-          lua: GAME_LUA
-        });
-      } else {
-        // Fallback: use the simple canvas-based Lua interpreter
-        loading.innerHTML = 'TIC-80 WASM not found. Using fallback player...';
-        setTimeout(function() {
-          loading.style.display = 'none';
-          canvas.style.display = 'block';
-          if (typeof initFallbackPlayer !== 'undefined') {
-            initFallbackPlayer(canvas, GAME_LUA);
-          } else {
-            loading.style.display = 'block';
-            loading.innerHTML = '<span class="error">Could not load TIC-80 runtime.<br>Please ensure tic80-player files are present.</span>';
-          }
-        }, 500);
+    // Prevent arrow key scrolling
+    window.addEventListener("keydown", function(e) {
+      if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {
+        e.preventDefault();
       }
+    }, false);
+
+    // Click-to-play: load TIC-80 WASM runtime on interaction
+    document.getElementById('click-to-play').addEventListener('click', function() {
+      this.remove();
+      var canvas = document.getElementById('canvas');
+      canvas.focus();
+
+      // Set up the TIC-80 Module global before loading tic80.js
+      window.Module = {
+        canvas: canvas,
+        arguments: ['cart.tic'],
+        locateFile: function(path, prefix) {
+          if (path.endsWith('.wasm')) {
+            return 'https://tic80.com/js/1.1.2837/tic80.wasm';
+          }
+          return prefix + path;
+        }
+      };
+
+      // Dynamically load tic80.js
+      var script = document.createElement('script');
+      script.src = 'https://tic80.com/js/1.1.2837/tic80.js';
+      script.onerror = function() {
+        var msg = document.createElement('div');
+        msg.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff6b6b;font-size:14px;text-align:center;padding:20px;';
+        msg.innerHTML = 'Failed to load TIC-80 runtime.<br>Check your internet connection.';
+        document.querySelector('.game-wrap').appendChild(msg);
+      };
+      document.head.appendChild(script);
     });
   </script>
 </body>
