@@ -134,44 +134,45 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 
 
 # CSS/JS injected into the TIC-80 native export's play/index.html
-# Pure CSS approach — !important overrides inline styles set by WASM runtime
+# Uses inline !important via JS setProperty — nothing can override this
 EXPORT_MOBILE_PATCH = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
   html, body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
     overflow: hidden !important;
     background: #000 !important;
+    touch-action: manipulation;
   }
-  #game-frame {
-    display: none !important;
-  }
-  canvas {
-    width: 100vw !important;
-    height: auto !important;
-    aspect-ratio: 240 / 136 !important;
-    max-height: 100vh !important;
-    display: block !important;
-    margin: auto !important;
-    position: absolute !important;
-    top: 0 !important; bottom: 0 !important;
-    left: 0 !important; right: 0 !important;
-    object-fit: contain !important;
-    image-rendering: pixelated !important;
-    image-rendering: crisp-edges !important;
-  }
-  @media (hover: none) and (pointer: coarse) {
-    html, body { touch-action: manipulation; }
-  }
+  #game-frame { display: none !important; }
 </style>
 <script>
   window.addEventListener('DOMContentLoaded', function() {
     var gf = document.getElementById('game-frame');
     if (gf) gf.click();
   });
+
+  // Force-resize the canvas to fill the viewport.
+  // Uses style.setProperty with 'important' flag — this sets INLINE !important
+  // which beats everything: stylesheet rules, other inline styles, WASM runtime.
+  // Runs on setInterval because the WASM runtime continuously resets canvas size.
+  function tic80_forceResize() {
+    var c = document.querySelector('canvas');
+    if (!c || !c.width) return;
+    var cw = c.width, ch = c.height;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var scale = Math.min(vw / cw, vh / ch);
+    var w = Math.floor(cw * scale), h = Math.floor(ch * scale);
+    c.style.setProperty('width', w + 'px', 'important');
+    c.style.setProperty('height', h + 'px', 'important');
+    c.style.setProperty('position', 'absolute', 'important');
+    c.style.setProperty('left', Math.floor((vw - w) / 2) + 'px', 'important');
+    c.style.setProperty('top', Math.floor((vh - h) / 2) + 'px', 'important');
+    c.style.setProperty('image-rendering', 'pixelated', 'important');
+  }
+  setInterval(tic80_forceResize, 50);
+  window.addEventListener('resize', tic80_forceResize);
 </script>
 """
 
@@ -454,22 +455,7 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     html, body {{
       width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
-    }}
-    canvas {{
-      width: 100vw !important;
-      height: auto !important;
-      aspect-ratio: 240 / 136 !important;
-      max-height: 100vh !important;
-      display: block !important;
-      margin: auto !important;
-      position: absolute !important;
-      top: 0; bottom: 0; left: 0; right: 0;
-      object-fit: contain !important;
-      image-rendering: pixelated !important;
-      image-rendering: crisp-edges !important;
-    }}
-    @media (hover: none) and (pointer: coarse) {{
-      html, body {{ touch-action: manipulation; }}
+      touch-action: manipulation;
     }}
 
     /* Mobile touch controls */
@@ -586,6 +572,26 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }};
   </script>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
+
+  <script>
+  // Force-resize canvas to fill viewport — inline !important beats WASM runtime
+  function tic80_forceResize() {{
+    var c = document.getElementById('canvas');
+    if (!c || !c.width) return;
+    var cw = c.width, ch = c.height;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var scale = Math.min(vw / cw, vh / ch);
+    var w = Math.floor(cw * scale), h = Math.floor(ch * scale);
+    c.style.setProperty('width', w + 'px', 'important');
+    c.style.setProperty('height', h + 'px', 'important');
+    c.style.setProperty('position', 'absolute', 'important');
+    c.style.setProperty('left', Math.floor((vw - w) / 2) + 'px', 'important');
+    c.style.setProperty('top', Math.floor((vh - h) / 2) + 'px', 'important');
+    c.style.setProperty('image-rendering', 'pixelated', 'important');
+  }}
+  setInterval(tic80_forceResize, 50);
+  window.addEventListener('resize', tic80_forceResize);
+  </script>
 
   <script>
   (function() {{
