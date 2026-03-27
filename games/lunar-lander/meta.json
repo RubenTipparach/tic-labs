@@ -1,0 +1,7 @@
+{
+  "title": "Lunar Lander",
+  "author": "tic-labs",
+  "description": "Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!",
+  "controls": "Arrow keys to rotate, Z to thrust",
+  "thumbnail_color": "#1a1a2e"
+}
