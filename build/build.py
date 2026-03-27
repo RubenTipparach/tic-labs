@@ -134,7 +134,9 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 
 
 # CSS/JS injected into the TIC-80 native export's play/index.html
-# Uses inline !important via JS setProperty — nothing can override this
+# The WASM runtime uses style.setProperty(w/h, 'important') — inline !important.
+# The ONLY way to override: wrap the canvas in a scaled container using CSS
+# transform, which is purely visual and cannot be affected by width/height changes.
 EXPORT_MOBILE_PATCH = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
@@ -143,6 +145,8 @@ EXPORT_MOBILE_PATCH = """
     padding: 0 !important;
     overflow: hidden !important;
     background: #000 !important;
+    width: 100% !important;
+    height: 100% !important;
     touch-action: manipulation;
   }
   #game-frame { display: none !important; }
@@ -153,26 +157,40 @@ EXPORT_MOBILE_PATCH = """
     if (gf) gf.click();
   });
 
-  // Force-resize the canvas to fill the viewport.
-  // Uses style.setProperty with 'important' flag — this sets INLINE !important
-  // which beats everything: stylesheet rules, other inline styles, WASM runtime.
-  // Runs on setInterval because the WASM runtime continuously resets canvas size.
-  function tic80_forceResize() {
-    var c = document.querySelector('canvas');
-    if (!c || !c.width) return;
-    var cw = c.width, ch = c.height;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    var scale = Math.min(vw / cw, vh / ch);
-    var w = Math.floor(cw * scale), h = Math.floor(ch * scale);
-    c.style.setProperty('width', w + 'px', 'important');
-    c.style.setProperty('height', h + 'px', 'important');
-    c.style.setProperty('position', 'absolute', 'important');
-    c.style.setProperty('left', Math.floor((vw - w) / 2) + 'px', 'important');
-    c.style.setProperty('top', Math.floor((vh - h) / 2) + 'px', 'important');
-    c.style.setProperty('image-rendering', 'pixelated', 'important');
-  }
-  setInterval(tic80_forceResize, 50);
-  window.addEventListener('resize', tic80_forceResize);
+  // Wrap canvas in a scaling container. CSS transform cannot be overridden
+  // by the WASM runtime setting width/height on the canvas element.
+  (function() {
+    function wrapAndScale() {
+      var canvas = document.querySelector('canvas');
+      if (!canvas) { requestAnimationFrame(wrapAndScale); return; }
+
+      // Wrap canvas in a container if not already wrapped
+      if (!canvas.parentElement || !canvas.parentElement.classList.contains('tic-scale-wrap')) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'tic-scale-wrap';
+        wrapper.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#000;';
+        canvas.parentElement.insertBefore(wrapper, canvas);
+        wrapper.appendChild(canvas);
+      }
+
+      function rescale() {
+        // Read the actual rendered size of the canvas (whatever WASM set)
+        var cw = canvas.offsetWidth || canvas.width || 240;
+        var ch = canvas.offsetHeight || canvas.height || 136;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var scale = Math.min(vw / cw, vh / ch);
+        canvas.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+        canvas.style.setProperty('transform-origin', 'center center', 'important');
+      }
+
+      rescale();
+      window.addEventListener('resize', rescale);
+      setInterval(rescale, 200);
+    }
+    // Wait for WASM to create/size the canvas
+    setTimeout(wrapAndScale, 500);
+  })();
 </script>
 """
 
@@ -457,6 +475,11 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
       touch-action: manipulation;
     }}
+    .tic-scale-wrap {{
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      overflow: hidden; display: flex; align-items: center; justify-content: center;
+      background: #000;
+    }}
 
     /* Mobile touch controls */
     .touch-controls {{
@@ -543,7 +566,9 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+  <div class="tic-scale-wrap">
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+  </div>
 
   <div class="touch-controls">
     <div class="dpad">
@@ -574,23 +599,22 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
 
   <script>
-  // Force-resize canvas to fill viewport — inline !important beats WASM runtime
-  function tic80_forceResize() {{
-    var c = document.getElementById('canvas');
-    if (!c || !c.width) return;
-    var cw = c.width, ch = c.height;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    var scale = Math.min(vw / cw, vh / ch);
-    var w = Math.floor(cw * scale), h = Math.floor(ch * scale);
-    c.style.setProperty('width', w + 'px', 'important');
-    c.style.setProperty('height', h + 'px', 'important');
-    c.style.setProperty('position', 'absolute', 'important');
-    c.style.setProperty('left', Math.floor((vw - w) / 2) + 'px', 'important');
-    c.style.setProperty('top', Math.floor((vh - h) / 2) + 'px', 'important');
-    c.style.setProperty('image-rendering', 'pixelated', 'important');
-  }}
-  setInterval(tic80_forceResize, 50);
-  window.addEventListener('resize', tic80_forceResize);
+  // Scale canvas via CSS transform — WASM runtime can't override transforms
+  (function() {{
+    var canvas = document.getElementById('canvas');
+    function rescale() {{
+      var cw = canvas.offsetWidth || canvas.width || 240;
+      var ch = canvas.offsetHeight || canvas.height || 136;
+      var vw = window.innerWidth;
+      var vh = window.innerHeight;
+      var scale = Math.min(vw / cw, vh / ch);
+      canvas.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+      canvas.style.setProperty('transform-origin', 'center center', 'important');
+    }}
+    setTimeout(rescale, 500);
+    window.addEventListener('resize', rescale);
+    setInterval(rescale, 200);
+  }})();
   </script>
 
   <script>
