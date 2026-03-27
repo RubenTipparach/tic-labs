@@ -134,35 +134,35 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 
 
 # CSS/JS injected into the TIC-80 native export's play/index.html
-# so the canvas fills the viewport on mobile
+# Only activates on mobile/touch devices — desktop is left untouched
 EXPORT_MOBILE_PATCH = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-  html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    overflow: hidden !important;
-    background: #000 !important;
-    touch-action: manipulation;
-  }
-  /* Hide TIC-80's click-to-play overlay */
-  #game-frame {
-    display: none !important;
-  }
-  /* Force the canvas wrapper (div.game or any parent) to fill viewport */
-  div.game, div#game, .emscripten, #canvas-container {
-    width: 100vw !important;
-    height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+  @media (hover: none) and (pointer: coarse) {
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      overflow: hidden !important;
+      background: #000 !important;
+      touch-action: manipulation;
+    }
+    #game-frame {
+      display: none !important;
+    }
+    div.game, div#game, .emscripten, #canvas-container {
+      width: 100vw !important;
+      height: 100vh !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
   }
 </style>
 <script>
@@ -172,35 +172,34 @@ EXPORT_MOBILE_PATCH = """
     if (gf) gf.click();
   });
 
-  // Override TIC-80 runtime's canvas sizing to fill viewport
-  // The runtime sets inline width/height on the canvas - we override
-  // continuously using a MutationObserver + resize listener
-  function tic80_forceFullscreen() {
-    var canvas = document.querySelector('canvas');
-    if (!canvas) { requestAnimationFrame(tic80_forceFullscreen); return; }
+  // Only override canvas sizing on mobile/touch devices
+  (function() {
+    var isMobile = (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+      || ('ontouchstart' in window && window.innerWidth < 1024);
+    if (!isMobile) return;
 
-    function resize() {
-      // TIC-80 native resolution is 240x136 (16:9-ish)
-      var cw = canvas.width || 240;
-      var ch = canvas.height || 136;
-      var vw = window.innerWidth;
-      var vh = window.innerHeight;
-      var scale = Math.min(vw / cw, vh / ch);
-      var w = Math.floor(cw * scale);
-      var h = Math.floor(ch * scale);
-      canvas.style.width = w + 'px';
-      canvas.style.height = h + 'px';
-      canvas.style.imageRendering = 'pixelated';
+    function tic80_forceFullscreen() {
+      var canvas = document.querySelector('canvas');
+      if (!canvas) { requestAnimationFrame(tic80_forceFullscreen); return; }
+
+      function resize() {
+        var cw = canvas.width || 240;
+        var ch = canvas.height || 136;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var scale = Math.min(vw / cw, vh / ch);
+        canvas.style.width = Math.floor(cw * scale) + 'px';
+        canvas.style.height = Math.floor(ch * scale) + 'px';
+        canvas.style.imageRendering = 'pixelated';
+      }
+
+      resize();
+      window.addEventListener('resize', resize);
+      var observer = new MutationObserver(function() { resize(); });
+      observer.observe(canvas, { attributes: true, attributeFilter: ['style', 'width', 'height'] });
     }
-
-    resize();
-    window.addEventListener('resize', resize);
-
-    // Re-apply whenever the runtime tries to change inline styles
-    var observer = new MutationObserver(function() { resize(); });
-    observer.observe(canvas, { attributes: true, attributeFilter: ['style', 'width', 'height'] });
-  }
-  requestAnimationFrame(tic80_forceFullscreen);
+    requestAnimationFrame(tic80_forceFullscreen);
+  })();
 </script>
 """
 
@@ -482,14 +481,22 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     html, body {{
-      width: 100%; height: 100%; overflow: hidden; background: #000;
-      touch-action: manipulation; margin: 0;
-      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
     }}
     canvas {{
       image-rendering: pixelated;
       image-rendering: crisp-edges;
-      display: block;
+      width: 100%;
+      height: 100%;
+    }}
+    @media (hover: none) and (pointer: coarse) {{
+      html, body {{
+        touch-action: manipulation;
+        display: flex; align-items: center; justify-content: center;
+      }}
+      canvas {{
+        width: auto; height: auto;
+      }}
     }}
 
     /* Mobile touch controls */
@@ -608,8 +615,12 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
 
   <script>
-  // Force canvas to fill viewport while maintaining aspect ratio
+  // Force canvas to fill viewport on mobile only
   (function() {{
+    var isMobile = (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+      || ('ontouchstart' in window && window.innerWidth < 1024);
+    if (!isMobile) return;
+
     function resizeCanvas() {{
       var canvas = document.getElementById('canvas');
       if (!canvas || !canvas.width || canvas.width < 2) {{
@@ -626,7 +637,6 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     }}
     requestAnimationFrame(resizeCanvas);
     window.addEventListener('resize', resizeCanvas);
-    // Re-apply whenever WASM runtime changes canvas style
     var obs = new MutationObserver(resizeCanvas);
     requestAnimationFrame(function waitCanvas() {{
       var c = document.getElementById('canvas');
