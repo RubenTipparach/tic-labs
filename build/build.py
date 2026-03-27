@@ -299,10 +299,31 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
 
   <script>
   (function() {{
+    // Make TIC-80 canvas fill the iframe on load
+    var iframe = document.querySelector('.game-frame');
+    iframe.addEventListener('load', function() {{
+      try {{
+        var doc = iframe.contentDocument || iframe.contentWindow.document;
+        var canvas = doc.querySelector('canvas');
+        if (canvas) {{
+          canvas.style.width = '100%';
+          canvas.style.height = '100%';
+          canvas.style.objectFit = 'contain';
+          canvas.style.imageRendering = 'pixelated';
+        }}
+        doc.body.style.margin = '0';
+        doc.body.style.padding = '0';
+        doc.body.style.overflow = 'hidden';
+        doc.body.style.background = '#000';
+        doc.body.style.width = '100%';
+        doc.body.style.height = '100%';
+        doc.documentElement.style.height = '100%';
+      }} catch(e) {{}}
+    }});
+
     var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     if (!isTouchDevice) return;
 
-    var iframe = document.querySelector('.game-frame');
     var buttons = document.querySelectorAll('.dpad-btn, .action-btn');
 
     function sendKey(btn, type) {{
@@ -388,12 +409,14 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <title>{title} - TIC-Labs</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    html, body {{ height: 100%; overflow: hidden; background: #1a1c2c; touch-action: manipulation; }}
+    html, body {{ height: 100%; overflow: hidden; background: #000; touch-action: manipulation; margin: 0; }}
     canvas {{
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       width: 100%;
       height: 100%;
+      display: block;
+      object-fit: contain;
     }}
 
     /* Mobile touch controls */

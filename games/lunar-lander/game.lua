@@ -230,17 +230,17 @@ function draw_ship()
   local cos_a = math.cos(rad)
   local sin_a = math.sin(rad)
 
-  -- nose
-  local nx = cx + sin_a * (-size)
-  local ny = cy + cos_a * (size)
+  -- nose (top of ship)
+  local nx = cx + sin_a * size
+  local ny = cy - cos_a * size
 
-  -- left wing
-  local lx = cx + cos_a * (-size * 0.7) + sin_a * (size * 0.5)
-  local ly = cy + sin_a * (size * 0.7) + cos_a * (-size * 0.5)
+  -- left wing (bottom-left)
+  local lx = cx - cos_a * (size * 0.7) - sin_a * (size * 0.5)
+  local ly = cy - sin_a * (size * 0.7) + cos_a * (size * 0.5)
 
-  -- right wing
-  local rx = cx + cos_a * (size * 0.7) + sin_a * (size * 0.5)
-  local ry = cy + sin_a * (-size * 0.7) + cos_a * (-size * 0.5)
+  -- right wing (bottom-right)
+  local rx = cx + cos_a * (size * 0.7) - sin_a * (size * 0.5)
+  local ry = cy + sin_a * (size * 0.7) + cos_a * (size * 0.5)
 
   tri(nx, ny, lx, ly, rx, ry, 12)
   -- outline
@@ -248,14 +248,13 @@ function draw_ship()
   line(nx, ny, rx, ry, 15)
   line(lx, ly, rx, ry, 15)
 
-  -- thrust flame
+  -- thrust flame (out the bottom, opposite of nose)
   if ship.thrust then
-    local fx = cx + sin_a * (size * 0.8)
-    local fy = cy + cos_a * (-size * 0.8)
+    local fx = cx - sin_a * (size * 0.8)
+    local fy = cy + cos_a * (size * 0.8)
     local fsize = 2 + math.random() * 2
-    local flame_rad = math.rad(ship.angle)
-    local ffx = fx + math.sin(flame_rad) * fsize
-    local ffy = fy - math.cos(flame_rad) * fsize
+    local ffx = fx - sin_a * fsize
+    local ffy = fy + cos_a * fsize
     line(fx, fy, ffx, ffy, 3)
     pix(ffx, ffy, 2)
   end
