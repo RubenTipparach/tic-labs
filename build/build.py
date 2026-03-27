@@ -134,34 +134,40 @@ def tic80_export_html(fs_dir, cart_name, out_dir):
 
 
 # CSS/JS injected into the TIC-80 native export's play/index.html
-# Only activates on mobile/touch devices — desktop is left untouched
+# Canvas scaling works on all screen sizes; touch overrides are mobile-only
 EXPORT_MOBILE_PATCH = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
+  /* Always fill the viewport with the canvas */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #000 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  #game-frame {
+    display: none !important;
+  }
+  div.game, div#game, .emscripten, #canvas-container {
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
   @media (hover: none) and (pointer: coarse) {
     html, body {
-      margin: 0 !important;
-      padding: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
-      overflow: hidden !important;
-      background: #000 !important;
       touch-action: manipulation;
-    }
-    #game-frame {
-      display: none !important;
-    }
-    div.game, div#game, .emscripten, #canvas-container {
-      width: 100vw !important;
-      height: 100vh !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
     }
   }
 </style>
@@ -172,12 +178,8 @@ EXPORT_MOBILE_PATCH = """
     if (gf) gf.click();
   });
 
-  // Only override canvas sizing on mobile/touch devices
+  // Scale canvas to fill viewport on ALL screen sizes
   (function() {
-    var isMobile = (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-      || ('ontouchstart' in window && window.innerWidth < 1024);
-    if (!isMobile) return;
-
     function tic80_forceFullscreen() {
       var canvas = document.querySelector('canvas');
       if (!canvas) { requestAnimationFrame(tic80_forceFullscreen); return; }
@@ -482,21 +484,15 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     html, body {{
       width: 100%; height: 100%; overflow: hidden; background: #000; margin: 0;
+      display: flex; align-items: center; justify-content: center;
     }}
     canvas {{
       image-rendering: pixelated;
       image-rendering: crisp-edges;
-      width: 100%;
-      height: 100%;
+      display: block;
     }}
     @media (hover: none) and (pointer: coarse) {{
-      html, body {{
-        touch-action: manipulation;
-        display: flex; align-items: center; justify-content: center;
-      }}
-      canvas {{
-        width: auto; height: auto;
-      }}
+      html, body {{ touch-action: manipulation; }}
     }}
 
     /* Mobile touch controls */
@@ -615,12 +611,8 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
   <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
 
   <script>
-  // Force canvas to fill viewport on mobile only
+  // Force canvas to fill viewport on all screen sizes
   (function() {{
-    var isMobile = (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-      || ('ontouchstart' in window && window.innerWidth < 1024);
-    if (!isMobile) return;
-
     function resizeCanvas() {{
       var canvas = document.getElementById('canvas');
       if (!canvas || !canvas.width || canvas.width < 2) {{
