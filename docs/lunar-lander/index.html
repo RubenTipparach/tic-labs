@@ -13,17 +13,14 @@
       font-family: 'Courier New', monospace;
       display: flex;
       flex-direction: column;
-      align-items: center;
     }
     .top-bar {
-      width: 100%;
       padding: 6px 16px;
       background: #0f0f1a;
       display: flex;
       align-items: center;
       gap: 12px;
       flex-shrink: 0;
-      z-index: 10;
     }
     .top-bar a {
       color: #7b8cff;
@@ -36,45 +33,12 @@
       color: #fff;
       font-weight: normal;
     }
-    .game-wrap {
+    .game-frame {
       flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border: none;
       width: 100%;
-      position: relative;
-    }
-    #click-to-play {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      cursor: pointer;
-      z-index: 5;
-      background: rgba(26, 28, 44, 0.85);
-    }
-    #click-to-play span {
-      color: #7b8cff;
-      font-size: 20px;
-      letter-spacing: 2px;
-    }
-    #click-to-play .sub {
-      color: #566c86;
-      font-size: 12px;
-      margin-top: 8px;
-      letter-spacing: 0;
-    }
-    canvas {
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: contain;
     }
     .info-bar {
-      width: 100%;
       padding: 4px 16px;
       background: #0f0f1a;
       font-size: 11px;
@@ -91,57 +55,11 @@
     <a href="../">&larr; Gallery</a>
     <h1>Lunar Lander</h1>
   </div>
-  <div class="game-wrap">
-    <div id="click-to-play">
-      <span>CLICK TO PLAY</span>
-      <div class="sub">Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!</div>
-    </div>
-    <canvas id="canvas"
-            oncontextmenu="event.preventDefault()"
-            tabindex="0"></canvas>
-  </div>
+  <iframe class="game-frame" src="play/index.html" allowfullscreen></iframe>
   <div class="info-bar">
     <span class="ctrl">Arrow keys to rotate, Z to thrust</span>
+    <span>Land the lunar module safely on the landing pad. Watch your fuel, velocity, and angle!</span>
     <span>by tic-labs</span>
   </div>
-
-  <script>
-    // Prevent arrow key scrolling
-    window.addEventListener("keydown", function(e) {
-      if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {
-        e.preventDefault();
-      }
-    }, false);
-
-    // Click-to-play: load TIC-80 WASM runtime on interaction
-    document.getElementById('click-to-play').addEventListener('click', function() {
-      this.remove();
-      var canvas = document.getElementById('canvas');
-      canvas.focus();
-
-      // Set up the TIC-80 Module global before loading tic80.js
-      window.Module = {
-        canvas: canvas,
-        arguments: ['cart.tic'],
-        locateFile: function(path, prefix) {
-          if (path.endsWith('.wasm')) {
-            return 'https://tic80.com/js/1.1.2837/tic80.wasm';
-          }
-          return prefix + path;
-        }
-      };
-
-      // Dynamically load tic80.js
-      var script = document.createElement('script');
-      script.src = 'https://tic80.com/js/1.1.2837/tic80.js';
-      script.onerror = function() {
-        var msg = document.createElement('div');
-        msg.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff6b6b;font-size:14px;text-align:center;padding:20px;';
-        msg.innerHTML = 'Failed to load TIC-80 runtime.<br>Check your internet connection.';
-        document.querySelector('.game-wrap').appendChild(msg);
-      };
-      document.head.appendChild(script);
-    });
-  </script>
 </body>
 </html>

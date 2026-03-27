@@ -2,9 +2,12 @@
 """
 Build script for TIC-80 game gallery.
 
-Scans the games/ directory for TIC-80 Lua games, generates .tic cartridge
-files, creates standalone HTML pages using the TIC-80 WASM player, and
-builds a gallery index page.
+Scans the games/ directory for TIC-80 Lua games, uses the TIC-80 CLI to
+export each game as a playable HTML bundle (with WASM runtime), and
+generates a gallery index page.
+
+Requires: TIC-80 CLI installed (set TIC80_PATH env var if not on PATH).
+          xvfb-run for headless environments (CI).
 
 Usage: python3 build/build.py
 """
@@ -14,16 +17,17 @@ import os
 import shutil
 import html
 import struct
+import subprocess
+import tempfile
+import zipfile
 
 GAMES_DIR = "games"
 OUTPUT_DIR = "docs"
 
-# TIC-80 WASM runtime version hosted at tic80.com
-TIC80_VERSION = "1.1.2837"
-TIC80_JS_URL = f"https://tic80.com/js/{TIC80_VERSION}/tic80.js"
-TIC80_WASM_URL = f"https://tic80.com/js/{TIC80_VERSION}/tic80.wasm"
+# TIC-80 binary path — override with TIC80_PATH env var
+TIC80_BIN = os.environ.get("TIC80_PATH", "tic80")
 
-# .tic file format: chunks with 4-byte headers (1 byte type + 3 bytes size LE)
+# .tic file format constants
 TIC_CHUNK_CODE = 5
 TIC_CHUNK_DEFAULT_PALETTE = 12
 
@@ -31,54 +35,91 @@ TIC_CHUNK_DEFAULT_PALETTE = 12
 def make_tic_cartridge(lua_source):
     """Build a minimal .tic cartridge binary from Lua source code.
 
-    The .tic format consists of typed chunks. Each chunk has a 4-byte header:
+    The .tic format uses typed chunks with 4-byte headers:
       byte 0: chunk type
       bytes 1-3: chunk size (24-bit little-endian)
-    followed by the chunk data.
-
-    We write:
-      - A CODE chunk (type 5) containing the Lua source as ASCII
-      - A DEFAULT palette chunk (type 12) with the Sweetie 16 palette
     """
     data = bytearray()
 
     # Sweetie 16 default palette (16 colors x 3 bytes RGB)
     palette = bytes([
-        0x1a, 0x1c, 0x2c,  # 0  dark navy
-        0x5d, 0x27, 0x5d,  # 1  dark purple
-        0xb1, 0x3e, 0x53,  # 2  red
-        0xef, 0x7d, 0x57,  # 3  orange
-        0xff, 0xcd, 0x75,  # 4  yellow
-        0xa7, 0xf0, 0x70,  # 5  lime
-        0x38, 0xb7, 0x64,  # 6  green
-        0x25, 0x71, 0x79,  # 7  dark cyan
-        0x29, 0x36, 0x6f,  # 8  dark blue
-        0x3b, 0x5d, 0xc9,  # 9  blue
-        0x41, 0xa6, 0xf6,  # 10 light blue
-        0x73, 0xef, 0xf7,  # 11 cyan
-        0xf4, 0xf4, 0xf4,  # 12 white
-        0x94, 0xb0, 0xc2,  # 13 light gray
-        0x56, 0x6c, 0x86,  # 14 gray
-        0x33, 0x3c, 0x57,  # 15 dark gray
+        0x1a, 0x1c, 0x2c, 0x5d, 0x27, 0x5d, 0xb1, 0x3e, 0x53, 0xef, 0x7d, 0x57,
+        0xff, 0xcd, 0x75, 0xa7, 0xf0, 0x70, 0x38, 0xb7, 0x64, 0x25, 0x71, 0x79,
+        0x29, 0x36, 0x6f, 0x3b, 0x5d, 0xc9, 0x41, 0xa6, 0xf6, 0x73, 0xef, 0xf7,
+        0xf4, 0xf4, 0xf4, 0x94, 0xb0, 0xc2, 0x56, 0x6c, 0x86, 0x33, 0x3c, 0x57,
     ])
 
-    # Write palette chunk
+    # Palette chunk
     pal_size = len(palette)
     data.append(TIC_CHUNK_DEFAULT_PALETTE)
-    data += struct.pack("<I", pal_size)[:3]  # 24-bit LE size
+    data += struct.pack("<I", pal_size)[:3]
     data += palette
 
-    # Write code chunk
+    # Code chunk
     code_bytes = lua_source.encode("ascii", errors="replace")
     code_size = len(code_bytes)
     data.append(TIC_CHUNK_CODE)
-    data += struct.pack("<I", code_size)[:3]  # 24-bit LE size
+    data += struct.pack("<I", code_size)[:3]
     data += code_bytes
 
     return bytes(data)
 
 
-GAME_HTML_TEMPLATE = """<!DOCTYPE html>
+def tic80_export_html(tic_path, out_dir):
+    """Use TIC-80 CLI to export a .tic cartridge to HTML.
+
+    Returns True on success, False on failure.
+    The export produces: index.html, tic80.js, tic80.wasm, cart.tic
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "export.zip")
+        cmd = f'load {tic_path} & export html {zip_path} & exit'
+
+        # Try with xvfb-run first (needed in headless CI), fall back to direct
+        for prefix in [["xvfb-run", "-a"], []]:
+            try:
+                result = subprocess.run(
+                    prefix + [TIC80_BIN, "--cli", "--cmd", cmd],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if os.path.exists(zip_path):
+                    break
+            except FileNotFoundError:
+                continue
+            except subprocess.TimeoutExpired:
+                print(f"    WARNING: TIC-80 export timed out")
+                continue
+
+        if not os.path.exists(zip_path):
+            return False
+
+        # Extract the zip into the output directory
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(out_dir)
+
+        return True
+
+
+def has_tic80():
+    """Check if TIC-80 CLI is available."""
+    for prefix in [[], ["xvfb-run", "-a"]]:
+        try:
+            result = subprocess.run(
+                prefix + [TIC80_BIN, "--cli", "--cmd", "exit"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return False
+
+
+# ── HTML Templates ──────────────────────────────────────────────────────
+
+# Wrapper page that embeds the TIC-80 exported game in an iframe
+# with gallery navigation chrome around it
+GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -93,17 +134,14 @@ GAME_HTML_TEMPLATE = """<!DOCTYPE html>
       font-family: 'Courier New', monospace;
       display: flex;
       flex-direction: column;
-      align-items: center;
     }}
     .top-bar {{
-      width: 100%;
       padding: 6px 16px;
       background: #0f0f1a;
       display: flex;
       align-items: center;
       gap: 12px;
       flex-shrink: 0;
-      z-index: 10;
     }}
     .top-bar a {{
       color: #7b8cff;
@@ -116,45 +154,12 @@ GAME_HTML_TEMPLATE = """<!DOCTYPE html>
       color: #fff;
       font-weight: normal;
     }}
-    .game-wrap {{
+    .game-frame {{
       flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border: none;
       width: 100%;
-      position: relative;
-    }}
-    #click-to-play {{
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      cursor: pointer;
-      z-index: 5;
-      background: rgba(26, 28, 44, 0.85);
-    }}
-    #click-to-play span {{
-      color: #7b8cff;
-      font-size: 20px;
-      letter-spacing: 2px;
-    }}
-    #click-to-play .sub {{
-      color: #566c86;
-      font-size: 12px;
-      margin-top: 8px;
-      letter-spacing: 0;
-    }}
-    canvas {{
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: contain;
     }}
     .info-bar {{
-      width: 100%;
       padding: 4px 16px;
       background: #0f0f1a;
       font-size: 11px;
@@ -171,58 +176,51 @@ GAME_HTML_TEMPLATE = """<!DOCTYPE html>
     <a href="../">&larr; Gallery</a>
     <h1>{title}</h1>
   </div>
-  <div class="game-wrap">
-    <div id="click-to-play">
-      <span>CLICK TO PLAY</span>
-      <div class="sub">{description}</div>
-    </div>
-    <canvas id="canvas"
-            oncontextmenu="event.preventDefault()"
-            tabindex="0"></canvas>
-  </div>
+  <iframe class="game-frame" src="play/index.html" allowfullscreen></iframe>
   <div class="info-bar">
     <span class="ctrl">{controls}</span>
+    <span>{description}</span>
     <span>by {author}</span>
   </div>
+</body>
+</html>
+"""
 
+# Fallback: standalone page when TIC-80 CLI is not available
+# Uses CDN-hosted WASM runtime
+FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title} - TIC-Labs</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    html, body {{ height: 100%; overflow: hidden; background: #1a1c2c; }}
+    canvas {{
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      width: 100%;
+      height: 100%;
+    }}
+  </style>
+</head>
+<body>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
   <script>
-    // Prevent arrow key scrolling
     window.addEventListener("keydown", function(e) {{
-      if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {{
-        e.preventDefault();
-      }}
+      if([32,37,38,39,40].indexOf(e.keyCode)>-1) e.preventDefault();
     }}, false);
-
-    // Click-to-play: load TIC-80 WASM runtime on interaction
-    document.getElementById('click-to-play').addEventListener('click', function() {{
-      this.remove();
-      var canvas = document.getElementById('canvas');
-      canvas.focus();
-
-      // Set up the TIC-80 Module global before loading tic80.js
-      window.Module = {{
-        canvas: canvas,
-        arguments: ['cart.tic'],
-        locateFile: function(path, prefix) {{
-          if (path.endsWith('.wasm')) {{
-            return '{tic80_wasm_url}';
-          }}
-          return prefix + path;
-        }}
-      }};
-
-      // Dynamically load tic80.js
-      var script = document.createElement('script');
-      script.src = '{tic80_js_url}';
-      script.onerror = function() {{
-        var msg = document.createElement('div');
-        msg.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff6b6b;font-size:14px;text-align:center;padding:20px;';
-        msg.innerHTML = 'Failed to load TIC-80 runtime.<br>Check your internet connection.';
-        document.querySelector('.game-wrap').appendChild(msg);
-      }};
-      document.head.appendChild(script);
-    }});
+    var Module = {{
+      canvas: document.getElementById('canvas'),
+      arguments: ['cart.tic'],
+      locateFile: function(path) {{
+        if (path.endsWith('.wasm')) return 'https://tic80.com/js/1.1.2837/' + path;
+        return path;
+      }}
+    }};
   </script>
+  <script src="https://tic80.com/js/1.1.2837/tic80.js"></script>
 </body>
 </html>
 """
@@ -287,30 +285,13 @@ GALLERY_TEMPLATE = """<!DOCTYPE html>
       align-items: center;
       justify-content: center;
     }}
-    .card-preview svg {{
-      width: 64px;
-      height: 64px;
-      opacity: 0.6;
-    }}
-    .card-body {{
-      padding: 16px;
-    }}
-    .card-body h2 {{
-      font-size: 18px;
-      color: #fff;
-      margin-bottom: 6px;
-    }}
-    .card-body p {{
-      font-size: 12px;
-      color: #888;
-      line-height: 1.5;
-    }}
+    .card-preview svg {{ width: 64px; height: 64px; opacity: 0.6; }}
+    .card-body {{ padding: 16px; }}
+    .card-body h2 {{ font-size: 18px; color: #fff; margin-bottom: 6px; }}
+    .card-body p {{ font-size: 12px; color: #888; line-height: 1.5; }}
     .card-body .meta {{
-      font-size: 11px;
-      color: #555;
-      margin-top: 8px;
-      display: flex;
-      justify-content: space-between;
+      font-size: 11px; color: #555; margin-top: 8px;
+      display: flex; justify-content: space-between;
     }}
     .footer {{
       text-align: center;
@@ -354,7 +335,6 @@ CARD_TEMPLATE = """
     </a>
 """
 
-# SVG icons for game cards
 GAME_ICONS = {
     "lunar-lander": '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M32 8L26 24H38L32 8Z" fill="#73eff7"/><path d="M26 24L22 36H42L38 24H26Z" fill="#41a6f6"/><path d="M22 36L18 40H46L42 36H22Z" fill="#3b5dc9"/><circle cx="32" cy="20" r="2" fill="#ffcd75"/><path d="M28 40L26 48" stroke="#ef7d57" stroke-width="2"/><path d="M36 40L38 48" stroke="#ef7d57" stroke-width="2"/><path d="M4 52C12 48 20 54 28 50C36 46 44 52 60 48" stroke="#566c86" stroke-width="2"/></svg>',
     "default": '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="16" y="16" width="32" height="32" rx="4" fill="#3b5dc9"/><circle cx="28" cy="32" r="4" fill="#73eff7"/><circle cx="40" cy="28" r="2" fill="#a7f070"/><circle cx="40" cy="36" r="2" fill="#ef7d57"/></svg>',
@@ -372,12 +352,17 @@ def build():
         print("No games found in games/ directory.")
         return
 
+    use_tic80 = has_tic80()
+    if use_tic80:
+        print(f"TIC-80 CLI found. Will export native HTML bundles.")
+    else:
+        print(f"TIC-80 CLI not found. Using CDN fallback for WASM runtime.")
+
     for game in games:
-        build_game(game)
+        build_game(game, use_tic80)
 
     build_gallery(games)
 
-    # Write .nojekyll for GitHub Pages
     with open(os.path.join(OUTPUT_DIR, ".nojekyll"), "w") as f:
         pass
 
@@ -418,30 +403,71 @@ def discover_games():
     return games
 
 
-def build_game(game):
-    """Build a single game: generate .tic cartridge and HTML wrapper."""
+def build_game(game, use_tic80):
+    """Build a single game page."""
     out_dir = os.path.join(OUTPUT_DIR, game["slug"])
     os.makedirs(out_dir, exist_ok=True)
 
-    # Generate .tic cartridge from Lua source
+    # Generate .tic cartridge
     tic_data = make_tic_cartridge(game["lua"])
+
+    if use_tic80:
+        # Use TIC-80 CLI to export full HTML bundle
+        play_dir = os.path.join(out_dir, "play")
+        os.makedirs(play_dir, exist_ok=True)
+
+        # Write .tic to temp location for TIC-80 to load
+        with tempfile.NamedTemporaryFile(suffix=".tic", delete=False) as tmp:
+            tmp.write(tic_data)
+            tmp_tic = tmp.name
+
+        try:
+            success = tic80_export_html(tmp_tic, play_dir)
+        finally:
+            os.unlink(tmp_tic)
+
+        if success:
+            # Write wrapper page with gallery nav
+            wrapper = GAME_PAGE_TEMPLATE.format(
+                title=html.escape(game["title"]),
+                description=html.escape(game["description"]),
+                controls=html.escape(game["controls"]),
+                author=html.escape(game["author"]),
+            )
+            with open(os.path.join(out_dir, "index.html"), "w") as f:
+                f.write(wrapper)
+            print(f"  Built: {game['slug']}/ (TIC-80 native export)")
+            return
+        else:
+            print(f"  WARNING: TIC-80 export failed for {game['slug']}, using fallback")
+
+    # Fallback: CDN-based player
     with open(os.path.join(out_dir, "cart.tic"), "wb") as f:
         f.write(tic_data)
 
-    # Generate HTML page
-    game_html = GAME_HTML_TEMPLATE.format(
+    fallback = FALLBACK_GAME_TEMPLATE.format(
+        title=html.escape(game["title"]),
+    )
+    # Write the play page
+    play_dir = os.path.join(out_dir, "play")
+    os.makedirs(play_dir, exist_ok=True)
+    with open(os.path.join(play_dir, "index.html"), "w") as f:
+        f.write(fallback)
+    # Copy cart.tic into play dir
+    with open(os.path.join(play_dir, "cart.tic"), "wb") as f:
+        f.write(tic_data)
+
+    # Write wrapper page
+    wrapper = GAME_PAGE_TEMPLATE.format(
         title=html.escape(game["title"]),
         description=html.escape(game["description"]),
         controls=html.escape(game["controls"]),
         author=html.escape(game["author"]),
-        tic80_js_url=TIC80_JS_URL,
-        tic80_wasm_url=TIC80_WASM_URL,
     )
-
     with open(os.path.join(out_dir, "index.html"), "w") as f:
-        f.write(game_html)
+        f.write(wrapper)
 
-    print(f"  Built: {game['slug']}/ (cart.tic: {len(tic_data)} bytes)")
+    print(f"  Built: {game['slug']}/ (CDN fallback)")
 
 
 def build_gallery(games):
@@ -460,7 +486,6 @@ def build_gallery(games):
         )
 
     gallery_html = GALLERY_TEMPLATE.format(cards=cards_html)
-
     with open(os.path.join(OUTPUT_DIR, "index.html"), "w") as f:
         f.write(gallery_html)
 
