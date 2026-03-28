@@ -278,7 +278,7 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       bottom: 0;
       left: 0;
       right: 0;
-      height: 280px;
+      height: 210px;
       z-index: 1000;
       pointer-events: none;
       padding: 10px 16px 24px;
@@ -291,21 +291,21 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       position: absolute;
       left: 16px;
       bottom: 24px;
-      width: 260px;
-      height: 260px;
+      width: 195px;
+      height: 195px;
     }}
     .dpad-btn {{
       position: absolute;
-      width: 88px;
-      height: 88px;
+      width: 66px;
+      height: 66px;
       background: rgba(255,255,255,0.18);
       border: 2px solid rgba(255,255,255,0.35);
-      border-radius: 12px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 32px;
+      font-size: 26px;
       touch-action: none;
     }}
     .dpad-btn.active {{
@@ -320,13 +320,13 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       position: absolute;
       right: 16px;
       bottom: 24px;
-      width: 240px;
-      height: 240px;
+      width: 180px;
+      height: 180px;
     }}
     .action-btn {{
       position: absolute;
-      width: 104px;
-      height: 104px;
+      width: 78px;
+      height: 78px;
       border-radius: 50%;
       background: rgba(255,255,255,0.18);
       border: 2px solid rgba(255,255,255,0.35);
@@ -334,7 +334,7 @@ GAME_PAGE_TEMPLATE = """<!DOCTYPE html>
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 28px;
+      font-size: 22px;
       font-weight: bold;
       font-family: 'Courier New', monospace;
       touch-action: none;
@@ -525,7 +525,7 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       bottom: 0;
       left: 0;
       right: 0;
-      height: 280px;
+      height: 210px;
       z-index: 1000;
       pointer-events: none;
       padding: 10px 16px 24px;
@@ -538,21 +538,21 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       position: absolute;
       left: 16px;
       bottom: 24px;
-      width: 260px;
-      height: 260px;
+      width: 195px;
+      height: 195px;
     }}
     .dpad-btn {{
       position: absolute;
-      width: 88px;
-      height: 88px;
+      width: 66px;
+      height: 66px;
       background: rgba(255,255,255,0.18);
       border: 2px solid rgba(255,255,255,0.35);
-      border-radius: 12px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 32px;
+      font-size: 26px;
       touch-action: none;
     }}
     .dpad-btn.active {{
@@ -567,13 +567,13 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       position: absolute;
       right: 16px;
       bottom: 24px;
-      width: 240px;
-      height: 240px;
+      width: 180px;
+      height: 180px;
     }}
     .action-btn {{
       position: absolute;
-      width: 104px;
-      height: 104px;
+      width: 78px;
+      height: 78px;
       border-radius: 50%;
       background: rgba(255,255,255,0.18);
       border: 2px solid rgba(255,255,255,0.35);
@@ -581,7 +581,7 @@ FALLBACK_GAME_TEMPLATE = """<!DOCTYPE html>
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,0.7);
-      font-size: 28px;
+      font-size: 22px;
       font-weight: bold;
       font-family: 'Courier New', monospace;
       touch-action: none;
