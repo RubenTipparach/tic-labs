@@ -1,0 +1,7 @@
+{
+  "title": "Snake",
+  "author": "tic-labs",
+  "description": "Classic snake game. Eat food to grow longer, but don't hit the walls or yourself!",
+  "controls": "Arrow keys to move, Z to start/restart",
+  "thumbnail_color": "#0a2a1a"
+}
