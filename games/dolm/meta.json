@@ -1,0 +1,7 @@
+{
+  "title": "DOLM",
+  "author": "tic-labs",
+  "description": "Doom-alike portal-rendered FPS demo. Procedurally generated wall textures, four interconnected rooms, full ttri 3D pipeline.",
+  "controls": "Arrows / WASD to move and turn, Z to strafe",
+  "thumbnail_color": "#1a0a0a"
+}
