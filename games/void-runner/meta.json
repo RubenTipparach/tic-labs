@@ -1,0 +1,7 @@
+{
+  "title": "Void Runner",
+  "author": "tic-labs",
+  "description": "Flat-shaded 3D space sim exercising a software rasterizer. Fly through an asteroid field and blast rocks around a lumbering mothership.",
+  "controls": "Arrows to pitch/yaw, Z thrust, X brake, A fire",
+  "thumbnail_color": "#0a0a1f"
+}
