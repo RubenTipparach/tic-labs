@@ -21,7 +21,11 @@ Sections:
 8. Depth buffer (z-buffer)
 9. Perspective-correct texture mapping
 10. Case study: FPS80 / ticgeo3d
-11. Further reading
+11. Camera and `lookAt` matrices
+12. Shading: flat and Gouraud
+13. Depth sorting / painter's algorithm
+14. TIC-80 Lua performance tips
+15. Further reading
 
 ---
 
@@ -605,7 +609,287 @@ Source:
 
 ---
 
-## 11. Further reading
+## 11. Camera and `lookAt` matrices
+
+The view matrix transforms world-space vertices into camera-space (with the
+camera at the origin, looking down -Z). The cleanest way to build it is a
+`lookAt` function — you give it a camera position, a target to look at, and
+an "up" reference vector, and it returns the inverse-camera matrix.
+
+```lua
+-- normalise a 3-vector
+local function norm(x, y, z)
+  local len = math.sqrt(x*x + y*y + z*z)
+  return x/len, y/len, z/len
+end
+
+local function cross(ax, ay, az, bx, by, bz)
+  return ay*bz - az*by,
+         az*bx - ax*bz,
+         ax*by - ay*bx
+end
+
+-- Build a view matrix (row-major 4x4) that puts the camera at `eye`
+-- looking at `target`, with world-up `up`.
+local function lookAt(eye, target, up)
+  -- forward = normalize(eye - target)   (points away from target)
+  local fx, fy, fz = norm(eye.x-target.x, eye.y-target.y, eye.z-target.z)
+  -- right = normalize(cross(up, forward))
+  local rx, ry, rz = cross(up.x,up.y,up.z, fx,fy,fz)
+  rx, ry, rz = norm(rx, ry, rz)
+  -- true up = cross(forward, right)
+  local ux, uy, uz = cross(fx,fy,fz, rx,ry,rz)
+
+  -- translation = -eye in the camera basis
+  local tx = -(rx*eye.x + ry*eye.y + rz*eye.z)
+  local ty = -(ux*eye.x + uy*eye.y + uz*eye.z)
+  local tz = -(fx*eye.x + fy*eye.y + fz*eye.z)
+
+  return {
+    rx, ry, rz, tx,
+    ux, uy, uz, ty,
+    fx, fy, fz, tz,
+    0,  0,  0,  1,
+  }
+end
+```
+
+Key points:
+
+- The three basis rows are `right`, `up`, `forward`. That's because the
+  view matrix is the *inverse* of the camera's world transform, and for a
+  pure rotation the inverse is the transpose.
+- The translation column is `-eye` expressed in the camera basis, not just
+  `-eye`.
+- Convention matters: if you want `+Z` to be "into the screen" (D3D-style),
+  flip the forward axis and swap the cross-product operands accordingly.
+- Combine with projection as `clip = P * V * model * vertex`. Most TIC-80
+  engines precompute `PV` once per frame and only multiply per-model the
+  model matrix.
+
+Sources:
+- [scratchapixel — placing a camera with lookAt](https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function.html)
+- [LearnOpenGL — camera](https://learnopengl.com/Getting-started/Camera)
+
+---
+
+## 12. Shading: flat and Gouraud
+
+The minimum-viable lighting model is **Lambert diffuse**: a surface's
+brightness is proportional to `max(0, dot(N, L))`, where `N` is the surface
+normal and `L` is the direction *to* the light.
+
+### Flat shading
+
+Compute one colour per triangle (using the face normal) and feed it as a
+solid fill. On TIC-80 this is very cheap: one dot product per triangle,
+then pick a palette index from a brightness ramp.
+
+```lua
+-- flat Lambert: one brightness value for the whole triangle
+local function flatShade(v0, v1, v2, lightDir, baseColour)
+  -- face normal from two edge vectors
+  local ax, ay, az = v1.x-v0.x, v1.y-v0.y, v1.z-v0.z
+  local bx, by, bz = v2.x-v0.x, v2.y-v0.y, v2.z-v0.z
+  local nx, ny, nz = ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
+  -- normalise
+  local ilen = 1 / math.sqrt(nx*nx + ny*ny + nz*nz)
+  nx, ny, nz = nx*ilen, ny*ilen, nz*ilen
+
+  local ndotl = nx*lightDir.x + ny*lightDir.y + nz*lightDir.z
+  if ndotl < 0 then ndotl = 0 end
+
+  -- pick a palette index from a 4-level ramp
+  local shade = math.floor(ndotl * 3 + 0.5)  -- 0..3
+  return baseColour[shade + 1]
+end
+```
+
+### Gouraud shading
+
+Compute lighting at each *vertex* using a per-vertex normal (usually the
+average of the face normals of the triangles that share that vertex), then
+let the rasterizer linearly interpolate the brightness across the triangle.
+On TIC-80 you can't pass a per-vertex colour to `ttri`, so "real" Gouraud
+isn't directly supported — but you can fake it by:
+
+- splitting the triangle into smaller triangles and feeding `ttri` different
+  UVs into a pre-baked ramp texture, or
+- drawing flat-shaded sub-triangles with slightly different palette indices
+  along a gradient.
+
+### Phong shading
+
+Per-pixel normal interpolation. Too expensive for pure Lua. Skip.
+
+### TIC-80 specific trick: palette swap instead of math
+
+Because the console has only 16 colours, most 3D carts pre-build 3–4 colour
+ramps (e.g. 4 shades of grey, 4 shades of green, 4 shades of brown) and
+store the "brightness index" 0..3 per triangle. Shading then becomes:
+
+```lua
+-- no multiplies: (ramp << 2) | brightness
+local paletteIndex = ramp*4 + brightness
+```
+
+FPS80 uses exactly this scheme (see section 10).
+
+Sources:
+- [LearnOpenGL — basic lighting (Lambert)](https://learnopengl.com/Lighting/Basic-Lighting)
+- [Wikipedia — Gouraud shading](https://en.wikipedia.org/wiki/Gouraud_shading)
+
+---
+
+## 13. Depth sorting / painter's algorithm
+
+Before `ttri` had a depth buffer, the standard TIC-80 trick for hidden
+surface removal was the **painter's algorithm**: sort all triangles
+back-to-front and draw them in that order. Whatever you draw last wins.
+
+```lua
+-- very simple depth key: average z of the three vertices
+local function triDepth(t)
+  return (t.v0.z + t.v1.z + t.v2.z) * (1/3)
+end
+
+table.sort(triangles, function(a, b)
+  return triDepth(a) > triDepth(b)  -- far ones first
+end)
+
+for _, t in ipairs(triangles) do
+  ttri(t.x1, t.y1, t.x2, t.y2, t.x3, t.y3,
+       t.u1, t.v1, t.u2, t.v2, t.u3, t.v3,
+       0, -1)  -- no z args = no depth buffer
+end
+```
+
+### Pros
+
+- Dirt simple. Works fine for small meshes and static scenes.
+- Lets you use `ttri` *without* z-values, which is slightly faster.
+- You can mix translucent triangles into the sort naturally.
+
+### Cons (this is why z-buffers exist)
+
+- **Cyclic overlap**: three triangles A, B, C where A is in front of B, B
+  in front of C, and C in front of A. No linear ordering is correct. Fix
+  is to split (clip) one of them — annoying.
+- **Piercing**: two triangles that actually intersect. Same deal: you have
+  to cut them along the intersection line.
+- **Sorting cost**: `O(n log n)` per frame. For ~200 triangles that's fine;
+  for thousands, not so much.
+- **Average-z is lossy**: a long triangle with one vertex close and two far
+  can "lose" to a much farther triangle when sorted by centroid.
+
+In practice, the TIC-80 rule of thumb:
+
+- Fewer than ~100 opaque triangles per frame, no weird overlaps: painter's
+  algorithm is fine.
+- More than that, or dynamic geometry, or overlapping meshes: pass z-values
+  to `ttri` and let the depth buffer sort it out.
+- Translucent triangles: always sort back-to-front, then draw *after* all
+  opaque geometry, with depth testing on but depth writes off.
+
+Sources:
+- [Painter's algorithm (Wikipedia)](https://en.wikipedia.org/wiki/Painter%27s_algorithm)
+- [LearnWebGL — hidden surface removal](http://learnwebgl.brown37.net/11_advanced_rendering/hidden_surface_removal.html)
+
+---
+
+## 14. TIC-80 Lua performance tips
+
+The rasterizer is in C, but every frame you're still running Lua over
+hundreds of vertices and triangles. A few rules make a huge difference.
+
+### Localize everything in hot loops
+
+Global lookups in Lua go through a hash table; local reads are a register
+fetch. At the top of any hot function:
+
+```lua
+local ttri   = ttri
+local sin    = math.sin
+local cos    = math.cos
+local floor  = math.floor
+local sqrt   = math.sqrt
+local tinsert = table.insert
+```
+
+Rule of thumb: if you reference a global more than once inside a loop,
+make it a local first. This alone can be a 2-4x speedup.
+
+### Don't allocate inside the inner loop
+
+Every `{}` and every `"foo"..x` is garbage collector pressure. Pre-allocate
+vertex/triangle pools and recycle them:
+
+```lua
+-- bad: allocates per triangle per frame
+for i = 1, #mesh do
+  local v = { x = mesh[i].x * s, y = mesh[i].y * s, z = mesh[i].z * s }
+  ...
+end
+
+-- good: mutate a fixed scratch buffer
+local scratch = {}
+for i = 1, #mesh do
+  local s = scratch[i] or {}
+  scratch[i] = s
+  s.x = mesh[i].x * sx
+  s.y = mesh[i].y * sy
+  s.z = mesh[i].z * sz
+end
+```
+
+### Use numeric-indexed arrays, not string keys
+
+`v[1], v[2], v[3]` is faster than `v.x, v.y, v.z` in Lua — array-part
+access is O(1) with no hash. For vector-heavy code this is a real win.
+
+### Batch screen writes with `memcpy` / `poke4`
+
+If you ever need to touch the framebuffer directly (for e.g. a sky
+gradient or a flat horizon), write 4 pixels at a time using `poke4` or
+clear regions with `memcpy`/`memset`:
+
+```lua
+-- clear the top half of the screen to palette index 12
+memset(0x00000, 0xcc, 240*68/2)  -- 2 pixels per byte
+```
+
+Framebuffer is at `0x00000`, 4 bits per pixel, so one byte holds two
+adjacent pixels.
+
+### `vbank(1)` as a second working surface
+
+TIC-80 has two 240x136 video banks. Typical uses:
+
+- Render 3D to `vbank(0)` and HUD to `vbank(1)`, blit in `OVR()`.
+- Use `vbank(1)` as a **texture atlas**: pass `texsrc = 2` to `ttri` and
+  you get an entire 240x136 image to sample from, on top of the normal
+  sprite sheet.
+- Build a per-frame lightmap or fog LUT in `vbank(1)` and read it back.
+
+### Other small wins
+
+- Pre-build sin/cos tables instead of calling `math.sin`/`math.cos` per
+  vertex.
+- Replace `math.floor(x + 0.5)` with `x | 0` (bitwise `or` with 0 truncates
+  in Lua 5.3+).
+- Avoid `ipairs` in tight loops — `for i = 1, #t do` is faster.
+- `table.sort` is fine for a few hundred elements per frame; beyond that,
+  radix / bucket sort is worth writing.
+- Use the MOOCOW profiler / `time()` diffs to actually measure, not guess.
+
+Sources:
+- [Roberto Ierusalimschy — Lua Performance Tips (PDF)](https://www.lua.org/gems/sample.pdf)
+- [TIC-80 /learn — memory map](https://tic80.com/learn)
+- [TIC-80 Cheat Sheet](https://skyelynwaddell.github.io/tic80-manual-cheatsheet/)
+
+---
+
+## 15. Further reading
 
 Core references this doc leans on:
 
@@ -634,6 +918,8 @@ Adjacent topics you'll eventually want:
 
 ## TL;DR checklist for a TIC-80 3D engine
 
+- [ ] Build view matrix with `lookAt(eye, target, up)`, precompute `PV`
+      once per frame.
 - [ ] Model -> World -> View transform (precomputed matrices, or hard-coded
       per-game like FPS80).
 - [ ] Object-level AABB vs frustum culling.
@@ -642,10 +928,16 @@ Adjacent topics you'll eventually want:
       if the rasterizer clips to the viewport).
 - [ ] Perspective divide -> viewport transform.
 - [ ] Backface cull using screen-space signed area.
-- [ ] Sort translucent triangles back-to-front if you don't trust the depth
-      buffer for them.
+- [ ] Flat-shade each triangle with Lambert `N . L`, pick a palette index
+      from a pre-baked ramp.
+- [ ] For small meshes: sort back-to-front (painter's) and call `ttri`
+      without z-values. For bigger / dynamic scenes: pass `z1, z2, z3` and
+      let the depth buffer handle it.
+- [ ] Sort translucent triangles back-to-front and draw after opaques.
 - [ ] Call `ttri(..., z1, z2, z3)` with your projected vertices and let
       TIC-80 handle rasterization, perspective-correct UVs, and depth
       testing.
 - [ ] `cls()` every frame — it also clears the depth buffer.
+- [ ] Localize every global used in hot loops, pre-allocate vertex pools,
+      and replace hashed fields with array indices.
 
