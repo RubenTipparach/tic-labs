@@ -1,0 +1,7 @@
+{
+  "title": "Dual Contour",
+  "author": "tic-labs",
+  "description": "Interactive marching cubes voxel editor. Click faces to add volume, right-click to remove. Polygonized into one continuous mesh in real time.",
+  "controls": "LMB: Add cube | RMB: Remove | Scroll: Zoom | Drag: Orbit",
+  "thumbnail_color": "#0a1a2a"
+}
