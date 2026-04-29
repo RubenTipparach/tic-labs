@@ -1,0 +1,7 @@
+{
+  "title": "Hello PICO-8",
+  "author": "tic-labs",
+  "description": "A tiny PICO-8 demo to validate the export pipeline.",
+  "controls": "Just watch — it's a demo",
+  "thumbnail_color": "#1a0f3a"
+}

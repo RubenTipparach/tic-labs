@@ -43,6 +43,27 @@ jobs:
       - name: Install virtual framebuffer
         run: sudo apt-get install -y xvfb
 
+      - name: Fetch PICO-8
+        env:
+          PICO8_URL: ${{ secrets.PICO8_URL }}
+        run: |
+          if [ -z "$PICO8_URL" ]; then
+            echo "PICO8_URL secret not set; skipping PICO-8 fetch."
+            exit 0
+          fi
+          curl -fsSL "$PICO8_URL" -o pico8.zip
+          mkdir -p "$HOME/pico8"
+          unzip -q pico8.zip -d "$HOME/pico8"
+          # The Lexaloffle zip extracts to pico-8/pico8 (binary) plus pico8.dat etc.
+          BIN="$(find "$HOME/pico8" -maxdepth 3 -type f -name pico8 | head -n1)"
+          if [ -z "$BIN" ]; then
+            echo "PICO-8 binary not found inside zip" >&2
+            exit 1
+          fi
+          chmod +x "$BIN"
+          sudo apt-get install -y libsdl2-2.0-0
+          echo "PICO8_BIN=$BIN" >> "$GITHUB_ENV"
+
       - name: Build game gallery
         run: python3 build/build.py
         env:
