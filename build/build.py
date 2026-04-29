@@ -198,6 +198,14 @@ EXPORT_MOBILE_PATCH = """
 """
 
 
+def _pico8_env():
+    """Env for PICO-8 subprocesses: route SDL at dummy audio so it doesn't
+    fail to init on headless CI runners that have no audio device."""
+    env = os.environ.copy()
+    env.setdefault("SDL_AUDIODRIVER", "dummy")
+    return env
+
+
 def has_pico8():
     """Check if PICO-8 binary is available and runs."""
     for prefix in [["xvfb-run", "-a"], []]:
@@ -205,6 +213,7 @@ def has_pico8():
             result = subprocess.run(
                 prefix + [PICO8_BIN, "-version"],
                 capture_output=True, text=True, timeout=10,
+                env=_pico8_env(),
             )
             if result.returncode == 0:
                 return True
@@ -244,6 +253,7 @@ def pico8_export_html(cart_path, out_dir):
                 result = subprocess.run(
                     prefix + [PICO8_BIN] + export_args,
                     cwd=tmpdir, capture_output=True, text=True, timeout=60,
+                    env=_pico8_env(),
                 )
                 last_stdout = (result.stdout or "") + (result.stderr or "")
                 if os.path.exists(os.path.join(tmpdir, "index.html")):
