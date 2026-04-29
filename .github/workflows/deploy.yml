@@ -63,8 +63,8 @@ jobs:
           PICO8_URL: ${{ secrets.PICO8_URL }}
         run: |
           if [ -z "$PICO8_URL" ]; then
-            echo "PICO8_URL secret not set but PICO-8 build was requested." >&2
-            exit 1
+            echo "::warning::PICO8_URL secret not set; PICO-8 carts will be skipped."
+            exit 0
           fi
           curl -fsSL "$PICO8_URL" -o pico8.zip
           mkdir -p "$HOME/pico8"
@@ -75,10 +75,10 @@ jobs:
         if: env.RUN_PICO8 == 'true'
         run: |
           # The Lexaloffle zip extracts to pico-8/pico8 (binary) plus pico8.dat etc.
-          BIN="$(find "$HOME/pico8" -maxdepth 3 -type f -name pico8 | head -n1)"
+          BIN="$(find "$HOME/pico8" -maxdepth 3 -type f -name pico8 2>/dev/null | head -n1)"
           if [ -z "$BIN" ]; then
-            echo "PICO-8 binary not found inside cached/extracted dir" >&2
-            exit 1
+            echo "::warning::PICO-8 binary not available; carts will be skipped."
+            exit 0
           fi
           chmod +x "$BIN"
           sudo apt-get install -y libsdl2-2.0-0
