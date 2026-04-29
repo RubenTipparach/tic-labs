@@ -1,6 +1,6 @@
 # TIC-Labs
 
-A collection of [TIC-80](https://tic80.com) games, automatically built and deployed as a playable web gallery via GitHub Pages.
+A collection of [TIC-80](https://tic80.com) games (and pico8 now), automatically built and deployed as a playable web gallery via GitHub Pages.
 
 ## Project Structure
 
