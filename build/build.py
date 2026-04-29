@@ -27,6 +27,9 @@ OUTPUT_DIR = "docs"
 # TIC-80 binary path — override with TIC80_PATH env var
 TIC80_BIN = os.environ.get("TIC80_PATH", "tic80")
 
+# PICO-8 binary path — override with PICO8_BIN env var. Optional.
+PICO8_BIN = os.environ.get("PICO8_BIN", "pico8")
+
 TIC_CHUNK_CODE = 5
 
 
@@ -193,6 +196,77 @@ EXPORT_MOBILE_PATCH = """
   })();
 </script>
 """
+
+
+def has_pico8():
+    """Check if PICO-8 binary is available and runs."""
+    for prefix in [["xvfb-run", "-a"], []]:
+        try:
+            result = subprocess.run(
+                prefix + [PICO8_BIN, "-version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return False
+
+
+def pico8_export_html(cart_path, out_dir):
+    """Use the PICO-8 CLI to export a .p8 cart to a self-contained HTML bundle.
+
+    PICO-8's `-export name.html cart.p8` writes the html + js into the current
+    working directory, so we run it inside a tempdir and copy the resulting
+    files into `out_dir`.
+
+    Returns True on success.
+    """
+    cart_path = os.path.abspath(cart_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="pico8export_") as tmpdir:
+        # -root_path keeps PICO-8 from poking at the user's home dir for config.
+        # -export expects the cart to be reachable from its working dir.
+        local_cart = os.path.join(tmpdir, os.path.basename(cart_path))
+        shutil.copyfile(cart_path, local_cart)
+
+        export_args = [
+            "-root_path", tmpdir,
+            "-export", "index.html",
+            os.path.basename(local_cart),
+        ]
+
+        last_stdout = ""
+        success = False
+        for prefix in [["xvfb-run", "-a"], []]:
+            try:
+                result = subprocess.run(
+                    prefix + [PICO8_BIN] + export_args,
+                    cwd=tmpdir, capture_output=True, text=True, timeout=60,
+                )
+                last_stdout = (result.stdout or "") + (result.stderr or "")
+                if os.path.exists(os.path.join(tmpdir, "index.html")):
+                    success = True
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+        print(f"    pico8: {last_stdout.strip().splitlines()[-1] if last_stdout.strip() else '(no output)'}")
+        if not success:
+            return False
+
+        # Copy every file PICO-8 produced (html + js + label png) into out_dir,
+        # but skip the cart itself.
+        cart_basename = os.path.basename(local_cart)
+        for name in os.listdir(tmpdir):
+            if name == cart_basename:
+                continue
+            src = os.path.join(tmpdir, name)
+            if os.path.isfile(src):
+                shutil.copyfile(src, os.path.join(out_dir, name))
+
+        return True
 
 
 def patch_exported_html(out_dir):
@@ -893,6 +967,12 @@ def build():
     else:
         print("TIC-80 CLI not found. Using CDN fallback for WASM runtime.")
 
+    use_pico8 = has_pico8()
+    if use_pico8:
+        print("PICO-8 binary found. Will export PICO-8 carts to HTML.")
+    elif any(g.get("engine") == "pico8" for g in games):
+        print("PICO-8 binary not found. PICO-8 carts will be skipped.")
+
     # If TIC-80 is available, create a blank cartridge template once
     # then patch each game's code into it
     blank_tic = None
@@ -906,8 +986,18 @@ def build():
             print("  WARNING: Could not create blank cartridge, falling back to CDN")
             use_tic80 = False
 
+    built_games = []
     for game in games:
-        build_game(game, use_tic80, blank_tic, tic80_fs)
+        if game.get("engine") == "pico8":
+            if not use_pico8:
+                print(f"  Skipped: {game['slug']}/ (no PICO-8 binary)")
+                continue
+            if build_pico8_game(game):
+                built_games.append(game)
+        else:
+            build_game(game, use_tic80, blank_tic, tic80_fs)
+            built_games.append(game)
+    games = built_games
 
     # Clean up temp dir
     if tic80_fs:
@@ -929,30 +1019,51 @@ def discover_games():
 
     for entry in sorted(os.listdir(GAMES_DIR)):
         game_dir = os.path.join(GAMES_DIR, entry)
+        if not os.path.isdir(game_dir):
+            continue
+
         lua_file = os.path.join(game_dir, "game.lua")
         meta_file = os.path.join(game_dir, "meta.json")
-
-        if not os.path.isdir(game_dir) or not os.path.exists(lua_file):
-            continue
+        p8_file = _find_p8_cart(game_dir)
 
         meta = {
             "title": entry.replace("-", " ").title(),
             "author": "Unknown",
-            "description": "A TIC-80 game.",
+            "description": "",
             "controls": "",
             "thumbnail_color": "#1a1a2e",
         }
-
         if os.path.exists(meta_file):
             with open(meta_file, "r") as f:
                 meta.update(json.load(f))
 
-        with open(lua_file, "r") as f:
-            lua_source = f.read()
-
-        games.append({"slug": entry, "lua": lua_source, **meta})
+        if os.path.exists(lua_file):
+            with open(lua_file, "r") as f:
+                lua_source = f.read()
+            meta.setdefault("description", "A TIC-80 game.")
+            games.append({
+                "slug": entry, "engine": "tic80",
+                "lua": lua_source, **meta,
+            })
+        elif p8_file:
+            meta.setdefault("description", "A PICO-8 game.")
+            games.append({
+                "slug": entry, "engine": "pico8",
+                "cart_path": p8_file, **meta,
+            })
 
     return games
+
+
+def _find_p8_cart(game_dir):
+    """Return path to the first .p8 cart in game_dir, preferring cart.p8."""
+    preferred = os.path.join(game_dir, "cart.p8")
+    if os.path.exists(preferred):
+        return preferred
+    for name in sorted(os.listdir(game_dir)):
+        if name.endswith(".p8"):
+            return os.path.join(game_dir, name)
+    return None
 
 
 def build_game(game, use_tic80, blank_tic, tic80_fs):
@@ -1013,6 +1124,24 @@ def build_game(game, use_tic80, blank_tic, tic80_fs):
         f.write(wrapper)
 
     print(f"  Built: {game['slug']}/ (CDN fallback)")
+
+
+def build_pico8_game(game):
+    """Build a PICO-8 game using its native HTML export.
+
+    PICO-8's export is already a polished, mobile-friendly standalone page,
+    so we drop it directly at docs/<slug>/index.html with no wrapper.
+    """
+    out_dir = os.path.join(OUTPUT_DIR, game["slug"])
+    os.makedirs(out_dir, exist_ok=True)
+
+    if not pico8_export_html(game["cart_path"], out_dir):
+        print(f"  WARNING: PICO-8 export failed for {game['slug']}")
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return False
+
+    print(f"  Built: {game['slug']}/ (PICO-8 native export)")
+    return True
 
 
 def build_gallery(games):

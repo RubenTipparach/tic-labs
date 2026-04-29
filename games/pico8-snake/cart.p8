@@ -1,0 +1,102 @@
+pico-8 cartridge // http://www.pico-8.com
+version 42
+__lua__
+-- snake
+-- by tic-labs
+
+function _init()
+ reset_game()
+ best=0
+end
+
+function reset_game()
+ snake={{x=8,y=8},{x=7,y=8},{x=6,y=8}}
+ dir={x=1,y=0}
+ nextdir=dir
+ food=spawn_food()
+ score=0
+ tick=0
+ speed=8
+ dead=false
+end
+
+function spawn_food()
+ while true do
+  local f={x=flr(rnd(16)),y=1+flr(rnd(15))}
+  local hit=false
+  for s in all(snake) do
+   if s.x==f.x and s.y==f.y then hit=true break end
+  end
+  if not hit then return f end
+ end
+end
+
+function _update60()
+ if dead then
+  if btnp(4) or btnp(5) then reset_game() end
+  return
+ end
+
+ if btn(0) and dir.x!=1 then nextdir={x=-1,y=0} end
+ if btn(1) and dir.x!=-1 then nextdir={x=1,y=0} end
+ if btn(2) and dir.y!=1 then nextdir={x=0,y=-1} end
+ if btn(3) and dir.y!=-1 then nextdir={x=0,y=1} end
+
+ tick+=1
+ if tick<speed then return end
+ tick=0
+ dir=nextdir
+
+ local head=snake[1]
+ local nx=head.x+dir.x
+ local ny=head.y+dir.y
+
+ if nx<0 or nx>15 or ny<1 or ny>15 then
+  dead=true sfx(1) return
+ end
+ for i=1,#snake do
+  if snake[i].x==nx and snake[i].y==ny then
+   dead=true sfx(1) return
+  end
+ end
+
+ add(snake,{x=nx,y=ny},1)
+ if nx==food.x and ny==food.y then
+  score+=1
+  if score>best then best=score end
+  food=spawn_food()
+  sfx(0)
+  if speed>3 and score%4==0 then speed-=1 end
+ else
+  deli(snake,#snake)
+ end
+end
+
+function _draw()
+ cls(1)
+ rect(0,8,127,127,5)
+ -- food
+ local fx,fy=food.x*8+1,food.y*8+1
+ rectfill(fx,fy,fx+5,fy+5,8)
+ pset(fx+1,fy+1,14)
+ -- snake
+ for i,s in ipairs(snake) do
+  local c=i==1 and 11 or 3
+  local sx,sy=s.x*8+1,s.y*8+1
+  rectfill(sx,sy,sx+5,sy+5,c)
+ end
+ -- ui
+ print("score "..score,2,1,7)
+ print("best "..best,90,1,6)
+ if dead then
+  local m="game over"
+  print(m,64-#m*2,56,8)
+  m="press \142 or \151 to restart"
+  print(m,64-#m*2,68,7)
+ end
+end
+
+__sfx__
+000100000c0500c0500c0500c050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000200001805018050150500f0500a050050500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+__music__

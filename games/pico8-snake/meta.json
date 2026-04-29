@@ -1,0 +1,7 @@
+{
+  "title": "Snake (PICO-8)",
+  "author": "tic-labs",
+  "description": "Classic snake, built in PICO-8 to validate the export pipeline.",
+  "controls": "Arrow keys to move, Z/X to restart",
+  "thumbnail_color": "#0a2a1a"
+}
