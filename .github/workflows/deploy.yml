@@ -81,7 +81,11 @@ jobs:
             exit 0
           fi
           chmod +x "$BIN"
-          sudo apt-get install -y libsdl2-2.0-0
+          # PICO-8 dynamically links SDL2 + GL. libsdl2 already pulls in the
+          # alsa/pulse libs as deps, but GL has to be installed explicitly.
+          sudo apt-get install -y \
+            libsdl2-2.0-0 libsdl2-mixer-2.0-0 \
+            libgl1 libglu1-mesa
           echo "PICO8_BIN=$BIN" >> "$GITHUB_ENV"
 
       - name: Build game gallery
