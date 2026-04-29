@@ -24,10 +24,6 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    env:
-      # Only fetch PICO-8 on manual dispatch (any branch) or pushes to main —
-      # avoids hammering Lexaloffle's download URL on every feature-branch push.
-      RUN_PICO8: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,7 +44,6 @@ jobs:
         run: sudo apt-get install -y xvfb
 
       - name: Cache PICO-8
-        if: env.RUN_PICO8 == 'true'
         id: cache-pico8
         uses: actions/cache@v4
         with:
@@ -58,7 +53,7 @@ jobs:
           key: pico8-linux-v1
 
       - name: Fetch PICO-8
-        if: env.RUN_PICO8 == 'true' && steps.cache-pico8.outputs.cache-hit != 'true'
+        if: steps.cache-pico8.outputs.cache-hit != 'true'
         env:
           PICO8_URL: ${{ secrets.PICO8_URL }}
         run: |
@@ -72,7 +67,6 @@ jobs:
           rm pico8.zip
 
       - name: Set up PICO-8
-        if: env.RUN_PICO8 == 'true'
         run: |
           # The Lexaloffle zip extracts to pico-8/pico8 (binary) plus pico8.dat etc.
           BIN="$(find "$HOME/pico8" -maxdepth 3 -type f -name pico8 2>/dev/null | head -n1)"
