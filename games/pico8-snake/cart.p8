@@ -1,28 +1,46 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
--- snake
+-- snake (organic)
 -- by tic-labs
 
+cell=4
+cols=32
+rows=30
+ox=0
+oy=8
+
 function _init()
- reset_game()
  best=0
+ reset_game()
 end
 
 function reset_game()
- snake={{x=8,y=8},{x=7,y=8},{x=6,y=8}}
+ snake={}
+ local cy=flr(rows/2)
+ for i=0,5 do add(snake,{x=14-i,y=cy}) end
  dir={x=1,y=0}
  nextdir=dir
+ prevsnake=clone(snake)
  food=spawn_food()
  score=0
  tick=0
- speed=8
+ anim=0
+ speed=6
  dead=false
+ shake=0
+ eatpop=0
+end
+
+function clone(s)
+ local r={}
+ for v in all(s) do add(r,{x=v.x,y=v.y}) end
+ return r
 end
 
 function spawn_food()
  while true do
-  local f={x=flr(rnd(16)),y=1+flr(rnd(15))}
+  local f={x=flr(rnd(cols)),y=flr(rnd(rows))}
   local hit=false
   for s in all(snake) do
    if s.x==f.x and s.y==f.y then hit=true break end
@@ -31,8 +49,12 @@ function spawn_food()
  end
 end
 
+function lerp(a,b,t) return a+(b-a)*t end
+
 function _update60()
+ if eatpop>0 then eatpop-=1 end
  if dead then
+  if shake>0 then shake-=1 end
   if btnp(4) or btnp(5) then reset_game() end
   return
  end
@@ -43,20 +65,23 @@ function _update60()
  if btn(3) and dir.y!=-1 then nextdir={x=0,y=1} end
 
  tick+=1
+ anim=tick/speed
  if tick<speed then return end
  tick=0
+ anim=0
  dir=nextdir
+ prevsnake=clone(snake)
 
  local head=snake[1]
  local nx=head.x+dir.x
  local ny=head.y+dir.y
 
- if nx<0 or nx>15 or ny<1 or ny>15 then
-  dead=true sfx(1) return
+ if nx<0 or nx>=cols or ny<0 or ny>=rows then
+  dead=true shake=8 sfx(1) return
  end
- for i=1,#snake do
+ for i=1,#snake-1 do
   if snake[i].x==nx and snake[i].y==ny then
-   dead=true sfx(1) return
+   dead=true shake=8 sfx(1) return
   end
  end
 
@@ -66,36 +91,104 @@ function _update60()
   if score>best then best=score end
   food=spawn_food()
   sfx(0)
-  if speed>3 and score%4==0 then speed-=1 end
+  eatpop=8
+  add(prevsnake,prevsnake[#prevsnake])
+  if speed>2 and score%4==0 then speed-=1 end
  else
   deli(snake,#snake)
  end
 end
 
 function _draw()
- cls(1)
- rect(0,8,127,127,5)
- -- food
- local fx,fy=food.x*8+1,food.y*8+1
- rectfill(fx,fy,fx+5,fy+5,8)
- pset(fx+1,fy+1,14)
- -- snake
- for i,s in ipairs(snake) do
-  local c=i==1 and 11 or 3
-  local sx,sy=s.x*8+1,s.y*8+1
-  rectfill(sx,sy,sx+5,sy+5,c)
+ local cx,cy=0,0
+ if shake>0 then
+  cx=flr(rnd(3))-1
+  cy=flr(rnd(3))-1
  end
- -- ui
+ camera(cx,cy)
+
+ cls(3)
+ for i=0,40 do
+  local x=(i*23)%128
+  local y=oy+(i*47)%(128-oy)
+  pset(x,y,11)
+  pset((x+5)%128,y+1,3)
+ end
+
+ rectfill(0,0,127,7,1)
+ line(0,7,127,7,0)
  print("score "..score,2,1,7)
  print("best "..best,90,1,6)
+
+ local fx=ox+food.x*cell+cell\2
+ local fy=oy+food.y*cell+cell\2
+ local bob=flr(sin(time()/2)*1.2)
+ spr(0,fx-4,fy-4+bob)
+
+ local t=anim
+ local pos={}
+ for i=1,#snake do
+  local c=snake[i]
+  local p=prevsnake[i] or c
+  add(pos,{
+   x=ox+lerp(p.x,c.x,t)*cell+cell\2,
+   y=oy+lerp(p.y,c.y,t)*cell+cell\2})
+ end
+
+ for i=#pos,2,-1 do
+  local p=pos[i]
+  circfill(p.x+1,p.y+1,2,0)
+ end
+ for i=#pos,2,-1 do
+  local p=pos[i]
+  circfill(p.x,p.y,2,3)
+ end
+ for i=#pos,2,-1 do
+  local p=pos[i]
+  circfill(p.x,p.y,1,11)
+ end
+ if #pos>=2 then
+  local p=pos[#pos]
+  circfill(p.x,p.y,1,3)
+ end
+
+ if pos[1] then
+  local p=pos[1]
+  local hx=flr(p.x)-3
+  local hy=flr(p.y)-3
+  if dir.x==1 then spr(1,hx,hy)
+  elseif dir.x==-1 then spr(1,hx,hy,1,1,true)
+  elseif dir.y==1 then spr(2,hx,hy)
+  else spr(2,hx,hy,1,1,false,true) end
+ end
+
+ if eatpop>0 then
+  local r=8-eatpop
+  circ(fx,fy,r,10)
+  circ(fx,fy,r+2,9)
+ end
+
  if dead then
+  rectfill(20,52,107,76,0)
+  rect(20,52,107,76,8)
   local m="game over"
-  print(m,64-#m*2,56,8)
-  m="press \142 or \151 to restart"
+  print(m,64-#m*2,58,8)
+  m="press \142 or \151 to retry"
   print(m,64-#m*2,68,7)
  end
+
+ camera()
 end
 
+__gfx__
+00043000003333000033330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0008830003bbbb3003bbbb3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0e8888803bb0bb383b0bb0b300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+888888803bbbbbb83bbbbbb300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+88e888803bbbbbb33bbbbbb300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+888888803bb0bb333bb88bb300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0888888003bbbb3003b88b3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00888800003333000008800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __label__
 11111111111111111111111111111133333331111111111111111111111111111111111111111111111111111111113333333111111111111111111111111111
 11111111111111111111111111111333333311111111111111111111111111111111111111111111111111111111133333331111111111111111111111111111
