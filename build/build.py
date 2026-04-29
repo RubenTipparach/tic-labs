@@ -1127,25 +1127,18 @@ def build_game(game, use_tic80, blank_tic, tic80_fs):
 
 
 def build_pico8_game(game):
-    """Build a single PICO-8 game page using the PICO-8 CLI export."""
-    out_dir = os.path.join(OUTPUT_DIR, game["slug"])
-    play_dir = os.path.join(out_dir, "play")
-    os.makedirs(play_dir, exist_ok=True)
+    """Build a PICO-8 game using its native HTML export.
 
-    success = pico8_export_html(game["cart_path"], play_dir)
-    if not success:
+    PICO-8's export is already a polished, mobile-friendly standalone page,
+    so we drop it directly at docs/<slug>/index.html with no wrapper.
+    """
+    out_dir = os.path.join(OUTPUT_DIR, game["slug"])
+    os.makedirs(out_dir, exist_ok=True)
+
+    if not pico8_export_html(game["cart_path"], out_dir):
         print(f"  WARNING: PICO-8 export failed for {game['slug']}")
         shutil.rmtree(out_dir, ignore_errors=True)
         return False
-
-    wrapper = GAME_PAGE_TEMPLATE.format(
-        title=html.escape(game["title"]),
-        description=html.escape(game["description"]),
-        controls=html.escape(game["controls"]),
-        author=html.escape(game["author"]),
-    )
-    with open(os.path.join(out_dir, "index.html"), "w") as f:
-        f.write(wrapper)
 
     print(f"  Built: {game['slug']}/ (PICO-8 native export)")
     return True
