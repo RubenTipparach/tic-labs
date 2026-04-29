@@ -207,18 +207,40 @@ def _pico8_env():
     return env
 
 
+def _log_pico8_block(label, text):
+    """Print a multi-line subprocess output indented under a label, so it
+    stands out in the build log."""
+    text = (text or "").rstrip()
+    if not text:
+        print(f"    pico8 [{label}]: (empty)")
+        return
+    print(f"    pico8 [{label}]:")
+    for line in text.splitlines():
+        print(f"      {line}")
+
+
 def has_pico8():
     """Check if PICO-8 binary is available and runs."""
+    print(f"  pico8: probing binary at {PICO8_BIN!r}")
     for prefix in [["xvfb-run", "-a"], []]:
+        argv = prefix + [PICO8_BIN, "-version"]
+        print(f"    pico8 [probe cmd]: {' '.join(argv)}")
         try:
             result = subprocess.run(
-                prefix + [PICO8_BIN, "-version"],
+                argv,
                 capture_output=True, text=True, timeout=10,
                 env=_pico8_env(),
             )
+            print(f"    pico8 [probe exit]: {result.returncode}")
+            _log_pico8_block("probe stdout", result.stdout)
+            _log_pico8_block("probe stderr", result.stderr)
             if result.returncode == 0:
                 return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except FileNotFoundError as e:
+            print(f"    pico8 [probe error]: not found ({e})")
+            continue
+        except subprocess.TimeoutExpired:
+            print(f"    pico8 [probe error]: timed out")
             continue
     return False
 
@@ -240,6 +262,9 @@ def pico8_export_html(cart_path, out_dir):
         # -export expects the cart to be reachable from its working dir.
         local_cart = os.path.join(tmpdir, os.path.basename(cart_path))
         shutil.copyfile(cart_path, local_cart)
+        print(f"    pico8 [tmpdir]: {tmpdir}")
+        print(f"    pico8 [cart]: {cart_path} -> {local_cart} "
+              f"({os.path.getsize(local_cart)} bytes)")
 
         export_args = [
             "-root_path", tmpdir,
@@ -247,35 +272,50 @@ def pico8_export_html(cart_path, out_dir):
             os.path.basename(local_cart),
         ]
 
-        last_stdout = ""
         success = False
         for prefix in [["xvfb-run", "-a"], []]:
+            argv = prefix + [PICO8_BIN] + export_args
+            print(f"    pico8 [export cmd]: {' '.join(argv)}")
+            print(f"    pico8 [export cwd]: {tmpdir}")
+            print(f"    pico8 [export env]: SDL_AUDIODRIVER="
+                  f"{_pico8_env().get('SDL_AUDIODRIVER')} "
+                  f"DISPLAY={_pico8_env().get('DISPLAY', '(unset)')}")
             try:
                 result = subprocess.run(
-                    prefix + [PICO8_BIN] + export_args,
+                    argv,
                     cwd=tmpdir, capture_output=True, text=True, timeout=60,
                     env=_pico8_env(),
                 )
-                last_stdout = (result.stdout or "") + (result.stderr or "")
+                print(f"    pico8 [export exit]: {result.returncode}")
+                _log_pico8_block("export stdout", result.stdout)
+                _log_pico8_block("export stderr", result.stderr)
+                produced = sorted(os.listdir(tmpdir))
+                print(f"    pico8 [export tmpdir contents]: {produced}")
                 if os.path.exists(os.path.join(tmpdir, "index.html")):
                     success = True
                     break
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except FileNotFoundError as e:
+                print(f"    pico8 [export error]: not found ({e})")
+                continue
+            except subprocess.TimeoutExpired:
+                print(f"    pico8 [export error]: timed out after 60s")
                 continue
 
-        print(f"    pico8: {last_stdout.strip().splitlines()[-1] if last_stdout.strip() else '(no output)'}")
         if not success:
             return False
 
         # Copy every file PICO-8 produced (html + js + label png) into out_dir,
         # but skip the cart itself.
         cart_basename = os.path.basename(local_cart)
+        copied = []
         for name in os.listdir(tmpdir):
             if name == cart_basename:
                 continue
             src = os.path.join(tmpdir, name)
             if os.path.isfile(src):
                 shutil.copyfile(src, os.path.join(out_dir, name))
+                copied.append(name)
+        print(f"    pico8 [copied -> {out_dir}]: {copied}")
 
         return True
 
