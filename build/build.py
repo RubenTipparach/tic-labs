@@ -199,10 +199,12 @@ EXPORT_MOBILE_PATCH = """
 
 
 def _pico8_env():
-    """Env for PICO-8 subprocesses: route SDL at dummy audio so it doesn't
-    fail to init on headless CI runners that have no audio device."""
+    """Env for PICO-8 subprocesses on headless CI: dummy SDL audio + video
+    drivers so SDL_Init doesn't fail on runners with no audio device or
+    flaky X server."""
     env = os.environ.copy()
     env.setdefault("SDL_AUDIODRIVER", "dummy")
+    env.setdefault("SDL_VIDEODRIVER", "dummy")
     return env
 
 
