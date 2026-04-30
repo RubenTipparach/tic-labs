@@ -122,7 +122,8 @@ function spawn_junk()
  -- spawn at distance d from ship along an aim cone
  -- so the cable mechanic is what gates depth
  local d=pick.dmin+rnd(pick.dmax-pick.dmin)
- local ang=0.25+(rnd(0.36)-0.18)
+ -- pico8 sin is flipped: 0.75 points down toward the hole
+ local ang=0.75+(rnd(0.36)-0.18)
  local jx=ship_x+cos(ang)*d
  local jy=ship_y+8+sin(ang)*d
  -- clamp inside hole
@@ -222,7 +223,7 @@ function update_fish()
   if not hooked then check_catch() end
  end
 
- local ang=0.25+aim
+ local ang=0.75+aim
  hook.x=ship_x+cos(ang)*arm_len
  hook.y=ship_y+8+sin(ang)*arm_len
 
@@ -490,7 +491,7 @@ end
 
 function draw_arm()
  if arm_state=="idle" and arm_len<=0 then return end
- local ang=0.25+aim
+ local ang=0.75+aim
  local steps=flr(arm_len/2)
  if steps<1 then steps=1 end
  for i=1,steps do
