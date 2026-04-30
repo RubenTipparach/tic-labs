@@ -1,0 +1,7 @@
+{
+  "title": "Void Angler (PICO-8)",
+  "author": "tic-labs",
+  "description": "Fish for space junk inside a black hole with your ship's robotic arm, then sell your haul for upgrades.",
+  "controls": "Left/Right to aim, Z to drop the arm, X to reel in. In shop: Up/Down to pick, Z to buy, X to leave.",
+  "thumbnail_color": "#0a0014"
+}
