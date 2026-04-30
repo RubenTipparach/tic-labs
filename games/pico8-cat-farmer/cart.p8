@@ -21,6 +21,8 @@ function _init()
  cat={x=60,y=60,f=1,walk=0}
  seeds=5
  gold=0
+ water=5
+ water_max=5
  day=1
  daytime=0
  daylen=60*60
@@ -30,6 +32,8 @@ function _init()
  msgt=180
  bx=0
  by=0
+ pond_x=cols-1
+ pond_y=0
  parts={}
 end
 
@@ -112,6 +116,10 @@ function act_z()
   end
   return
  end
+ if tx==pond_x and ty==pond_y then
+  say("press x to fill can")
+  return
+ end
  local p=plots[tx][ty]
  if p.state==0 then
   p.state=1
@@ -140,8 +148,24 @@ end
 function act_x()
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
+ if tx==pond_x and ty==pond_y then
+  if water<water_max then
+   water=water_max
+   sfx(4)
+   spawn_parts(gx+tx*cell+4,gy+ty*cell+2,12,8)
+   say("filled watering can")
+  else
+   say("can already full")
+  end
+  return
+ end
  local p=plots[tx][ty]
  if p.state>=1 and p.state<3 then
+  if water<=0 then
+   say("no water, visit pond")
+   return
+  end
+  water-=1
   p.water=wet_dur
   sfx(4)
   spawn_parts(gx+tx*cell+4,gy+ty*cell+1,12,4)
@@ -210,6 +234,16 @@ function _draw()
  rectfill(bpx+2,bpy+4,bpx+5,bpy+7,0)
  print("$",bpx+3,bpy+4,10)
 
+ local ppx=gx+pond_x*cell
+ local ppy=gy+pond_y*cell
+ rectfill(ppx,ppy,ppx+cell-1,ppy+cell-1,1)
+ rectfill(ppx+1,ppy+1,ppx+cell-2,ppy+cell-2,12)
+ local rt=daytime\20
+ pset(ppx+2+rt%3,ppy+2,7)
+ pset(ppx+5-rt%2,ppy+5,7)
+ pset(ppx+1,ppy+6,1)
+ pset(ppx+6,ppy+1,1)
+
  for q in all(parts) do
   pset(q.x,q.y,q.c)
  end
@@ -219,9 +253,10 @@ function _draw()
  rectfill(0,0,127,7,1)
  line(0,7,127,7,0)
  print("\142",1,1,11)
- print("seeds:"..seeds,9,1,7)
- print("gold:"..gold,55,1,10)
- print("day "..day,98,1,7)
+ print("s:"..seeds,6,1,7)
+ print("g:"..gold,30,1,10)
+ print("w:"..water,54,1,12)
+ print("day "..day,82,1,7)
 
  if msgt>0 then
   local m=msg
@@ -229,7 +264,7 @@ function _draw()
   rectfill(64-w/2-2,118,64+w/2,124,0)
   print(m,64-w/2,119,7)
  elseif day==1 and daytime<420 then
-  print("z=till/plant/harvest x=water",2,118,6)
+  print("z:till/plant/harvest x:water",2,118,6)
  end
 end
 
