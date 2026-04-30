@@ -12,16 +12,16 @@ bh_r=28
 ship_x=64
 ship_y=18
 
--- junk catalog. depth = distance from ship at which this
--- type spawns. rarer items live deeper, so longer cables
--- are required to physically reach them.
+-- junk catalog. dmin/dmax are depth fractions inside the
+-- hole (0=top edge, 1=bottom edge). rarer items live deeper,
+-- so longer cables and good ship positioning are needed.
 junk_types={
- {name="bolt",  val=2,  col=6,  rate=5.0, dmin=40, dmax=58},
- {name="can",   val=3,  col=13, rate=3.0, dmin=46, dmax=66},
- {name="chip",  val=5,  col=11, rate=1.5, dmin=58, dmax=78},
- {name="gem",   val=9,  col=12, rate=0.7, dmin=70, dmax=88},
- {name="core",  val=22, col=14, rate=0.25,dmin=86, dmax=100},
- {name="relic", val=55, col=10, rate=0.08,dmin=98, dmax=112},
+ {name="bolt",  val=2,  col=6,  rate=5.0, dmin=0.0, dmax=0.4},
+ {name="can",   val=3,  col=13, rate=3.0, dmin=0.15,dmax=0.55},
+ {name="chip",  val=5,  col=11, rate=1.5, dmin=0.3, dmax=0.7},
+ {name="gem",   val=9,  col=12, rate=0.7, dmin=0.45,dmax=0.8},
+ {name="core",  val=22, col=14, rate=0.25,dmin=0.6, dmax=0.92},
+ {name="relic", val=55, col=10, rate=0.08,dmin=0.8, dmax=1.0},
 }
 
 -- upgrade tracks. each level entry is {cost, value}.
@@ -92,6 +92,8 @@ function reset_run()
  catch_r=up_val("magnet")
  aim=0
  aim_t=0
+ ship_x=64
+ ship_vx=0
  hook={x=ship_x,y=ship_y+8}
  hooked=nil
  catch_flash=0
@@ -119,20 +121,13 @@ function spawn_junk()
   roll-=t.rate
   if roll<=0 then pick=t break end
  end
- -- spawn at distance d from ship along an aim cone
- -- so the cable mechanic is what gates depth
- local d=pick.dmin+rnd(pick.dmax-pick.dmin)
- -- pico8 sin is flipped: 0.75 points down toward the hole
- local ang=0.75+(rnd(0.36)-0.18)
- local jx=ship_x+cos(ang)*d
- local jy=ship_y+8+sin(ang)*d
- -- clamp inside hole
- local dx=jx-bh_x local dy=jy-bh_y
- local rd=sqrt(dx*dx+dy*dy)
- if rd>bh_r-3 then
-  jx=bh_x+dx/rd*(bh_r-3)
-  jy=bh_y+dy/rd*(bh_r-3)
- end
+ -- spawn at a depth inside the hole (independent of ship)
+ -- so player navigates over the hole to reach the junk.
+ local depth=pick.dmin+rnd(pick.dmax-pick.dmin)
+ local jy=(bh_y-bh_r)+depth*(2*bh_r)
+ local dy=jy-bh_y
+ local chord=sqrt(max(0,bh_r*bh_r-dy*dy))
+ local jx=bh_x+(rnd(2)-1)*chord*0.9
  add(junk,{
   x=jx,y=jy,
   ox=jx,oy=jy,
@@ -164,12 +159,11 @@ end
 
 function update_fish()
  if arm_state=="idle" then
-  if btn(0) then aim_t=max(aim_t-0.02,-0.18) end
-  if btn(1) then aim_t=min(aim_t+0.02,0.18) end
-  if not btn(0) and not btn(1) then
-   aim_t*=0.92
-   if abs(aim_t)<0.005 then aim_t=0 end
-  end
+  -- ship flies horizontally when arm is stowed
+  if btn(0) then ship_x=max(ship_x-1.1,12) ship_vx=-1 end
+  if btn(1) then ship_x=min(ship_x+1.1,116) ship_vx=1 end
+  aim_t*=0.85
+  if abs(aim_t)<0.005 then aim_t=0 end
   aim=aim_t
   if btnp(4) then
    arm_state="dropping"
@@ -180,6 +174,11 @@ function update_fish()
    shop_sel=1
    sfx(4)
   end
+ else
+  -- live arm tilt while the rod is out
+  if btn(0) then aim_t=max(aim_t-0.008,-0.18) end
+  if btn(1) then aim_t=min(aim_t+0.008,0.18) end
+  aim=aim_t
  end
 
  for j in all(junk) do
@@ -230,6 +229,8 @@ function update_fish()
  ship_y=18+sin(time()/3)*0.6
 
  if catch_flash>0 then catch_flash-=1 end
+ ship_vx*=0.7
+ if abs(ship_vx)<0.05 then ship_vx=0 end
 end
 
 function update_shop()
@@ -324,7 +325,7 @@ function draw_fish()
 
  draw_topbar()
  if arm_state=="idle" then
-  print("\139\145 aim  \142 drop  \151 reel",18,118,5)
+  print("\139\145 fly  \142 drop  \151 reel",18,118,5)
   print("\131 dock at shop",36,124,6)
  end
 
@@ -479,6 +480,16 @@ function draw_ship()
  pset(sx-8,sy+2,8)
  pset(sx+8,sy+2,8)
  rectfill(sx-1,sy+3,sx+1,sy+5,5)
+ -- side thruster flame when flying
+ if ship_vx<-0.2 then
+  local fx=sx+9
+  pset(fx,sy,9) pset(fx+1,sy,10)
+  if rnd(1)<0.5 then pset(fx+2,sy,8) end
+ elseif ship_vx>0.2 then
+  local fx=sx-9
+  pset(fx,sy,9) pset(fx-1,sy,10)
+  if rnd(1)<0.5 then pset(fx-2,sy,8) end
+ end
  -- magnet field hint when arm out
  if arm_state!="idle" and catch_r>=5 then
   for i=0,11 do
