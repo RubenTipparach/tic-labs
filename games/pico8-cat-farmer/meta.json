@@ -1,7 +1,7 @@
 {
   "title": "Cat Farmer (PICO-8)",
   "author": "tic-labs",
-  "description": "A small cat tends a tile based farm. Till soil, plant seeds, water crops, and sell the harvest at the barn.",
-  "controls": "Arrows to move, Z to till/plant/harvest, X to water",
+  "description": "A small cat tends a tile based farm. Till soil, plant seeds, water crops with a watering can refilled at the pond, and fish in the pond for extra gold.",
+  "controls": "Arrows to move, Z to till/plant/harvest/fish, X to water or refill at pond",
   "thumbnail_color": "#1d6e2a"
 }
