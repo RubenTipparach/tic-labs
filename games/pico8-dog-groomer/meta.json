@@ -1,7 +1,7 @@
 {
   "title": "Dog Groomer (PICO-8)",
   "author": "tic-labs",
-  "description": "Brush every tangle out of the pup. Stage 1 of a dog grooming sim built in PICO-8.",
-  "controls": "Arrow keys to move, Z to brush, X cycles tools",
+  "description": "Brush tangles, scrub off dirt, snip overgrown fur, and dry the suds before each customer's patience runs out.",
+  "controls": "Arrow keys to move, Z to use the current tool, X cycles tools",
   "thumbnail_color": "#1a1a2e"
 }
