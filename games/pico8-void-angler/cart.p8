@@ -3,7 +3,7 @@ version 42
 __lua__
 -- void angler
 -- by tic-labs
--- stage 2: inventory + shop
+-- stage 3: upgrades + rare tiers
 
 bh_x=64
 bh_y=96
@@ -12,12 +12,47 @@ bh_r=28
 ship_x=64
 ship_y=18
 
--- junk catalog (shared by spawn + shop)
+-- junk catalog. depth = distance from ship at which this
+-- type spawns. rarer items live deeper, so longer cables
+-- are required to physically reach them.
 junk_types={
- {name="bolt", val=2, col=6,  rate=5.0},
- {name="can",  val=3, col=13, rate=3.0},
- {name="chip", val=5, col=11, rate=1.5},
- {name="gem",  val=9, col=12, rate=0.5},
+ {name="bolt",  val=2,  col=6,  rate=5.0, dmin=40, dmax=58},
+ {name="can",   val=3,  col=13, rate=3.0, dmin=46, dmax=66},
+ {name="chip",  val=5,  col=11, rate=1.5, dmin=58, dmax=78},
+ {name="gem",   val=9,  col=12, rate=0.7, dmin=70, dmax=88},
+ {name="core",  val=22, col=14, rate=0.25,dmin=86, dmax=100},
+ {name="relic", val=55, col=10, rate=0.08,dmin=98, dmax=112},
+}
+
+-- upgrade tracks. each level entry is {cost, value}.
+upgrades={
+ {key="cable", label="cable",
+  desc="reach deeper junk",
+  levels={
+   {cost=0,  v=58},
+   {cost=20, v=72},
+   {cost=55, v=86},
+   {cost=120,v=99},
+   {cost=240,v=112},
+  }},
+ {key="reel", label="reel",
+  desc="faster drop+reel",
+  levels={
+   {cost=0,  v=1.1},
+   {cost=18, v=1.4},
+   {cost=45, v=1.8},
+   {cost=100,v=2.3},
+   {cost=200,v=2.9},
+  }},
+ {key="magnet", label="magnet",
+  desc="bigger catch range",
+  levels={
+   {cost=0,  v=3.5},
+   {cost=25, v=4.6},
+   {cost=60, v=5.8},
+   {cost=130,v=7.2},
+   {cost=260,v=9.0},
+  }},
 }
 
 function _init()
@@ -33,36 +68,49 @@ function _init()
  credits=0
  inv={}
  for t in all(junk_types) do inv[t.name]=0 end
+ lvl={}
+ for u in all(upgrades) do lvl[u.key]=1 end
  mode="fish"
+ shop_tab=1 -- 1=sell, 2=upgrade
  shop_sel=1
  dock_msg_t=0
  reset_run()
 end
 
+function up_val(key)
+ local u
+ for x in all(upgrades) do if x.key==key then u=x break end end
+ return u.levels[lvl[key]].v
+end
+
 function reset_run()
  arm_state="idle"
  arm_len=0
- arm_max=58
- arm_drop_speed=1.4
- arm_reel_speed=1.1
+ arm_max=up_val("cable")
+ arm_reel_speed=up_val("reel")
+ arm_drop_speed=arm_reel_speed*1.25
+ catch_r=up_val("magnet")
  aim=0
  aim_t=0
- hook={x=ship_x,y=ship_y+8,vx=0,vy=0}
+ hook={x=ship_x,y=ship_y+8}
  hooked=nil
  catch_flash=0
 
  junk={}
- for i=1,7 do spawn_junk() end
+ for i=1,8 do spawn_junk() end
 
  popups={}
 end
 
+function apply_upgrades()
+ arm_max=up_val("cable")
+ arm_reel_speed=up_val("reel")
+ arm_drop_speed=arm_reel_speed*1.25
+ catch_r=up_val("magnet")
+end
+
 function spawn_junk()
- local a=rnd(1)
- local r=rnd(bh_r-3)+2
- local jx=bh_x+cos(a)*r
- local jy=bh_y+sin(a)*r
- -- weighted draw using rate field
+ -- pick type (weighted)
  local total=0
  for t in all(junk_types) do total+=t.rate end
  local roll=rnd(total)
@@ -71,6 +119,19 @@ function spawn_junk()
   roll-=t.rate
   if roll<=0 then pick=t break end
  end
+ -- spawn at distance d from ship along an aim cone
+ -- so the cable mechanic is what gates depth
+ local d=pick.dmin+rnd(pick.dmax-pick.dmin)
+ local ang=0.25+(rnd(0.36)-0.18)
+ local jx=ship_x+cos(ang)*d
+ local jy=ship_y+8+sin(ang)*d
+ -- clamp inside hole
+ local dx=jx-bh_x local dy=jy-bh_y
+ local rd=sqrt(dx*dx+dy*dy)
+ if rd>bh_r-3 then
+  jx=bh_x+dx/rd*(bh_r-3)
+  jy=bh_y+dy/rd*(bh_r-3)
+ end
  add(junk,{
   x=jx,y=jy,
   ox=jx,oy=jy,
@@ -78,7 +139,7 @@ function spawn_junk()
   spinv=(rnd(0.02)+0.005)*(rnd(1)<0.5 and -1 or 1),
   orbit=rnd(1),
   orbitv=(rnd(0.004)+0.001)*(rnd(1)<0.5 and -1 or 1),
-  jitter=rnd(1.2)+0.4,
+  jitter=rnd(1.0)+0.3,
   type=pick,
  })
 end
@@ -93,6 +154,11 @@ function _update60()
  else update_shop() end
  if dock_msg_t>0 then dock_msg_t-=1 end
  for s in all(stars) do s.tw+=0.01 end
+ for p in all(popups) do
+  p.y-=0.5
+  p.t-=1
+  if p.t<=0 then del(popups,p) end
+ end
 end
 
 function update_fish()
@@ -108,7 +174,6 @@ function update_fish()
    arm_state="dropping"
    sfx(0)
   end
-  -- dock by pressing down on idle
   if btnp(3) then
    mode="shop"
    shop_sel=1
@@ -144,7 +209,7 @@ function update_fish()
     catch_flash=18
     inv[hooked.type.name]=(inv[hooked.type.name] or 0)+1
     add(popups,{x=ship_x,y=ship_y,t=30,
-     txt="+1 "..hooked.type.name})
+     txt="+1 "..hooked.type.name,c=7})
     sfx(2)
     del(junk,hooked)
     spawn_junk()
@@ -164,59 +229,74 @@ function update_fish()
  ship_y=18+sin(time()/3)*0.6
 
  if catch_flash>0 then catch_flash-=1 end
- for p in all(popups) do
-  p.y-=0.5
-  p.t-=1
-  if p.t<=0 then del(popups,p) end
- end
 end
 
 function update_shop()
- local n=#junk_types
- if btnp(2) then shop_sel=((shop_sel-2)%n)+1 sfx(5) end
- if btnp(3) then shop_sel=(shop_sel%n)+1 sfx(5) end
- -- z: sell one of selected
- if btnp(4) then
-  local t=junk_types[shop_sel]
-  if (inv[t.name] or 0)>0 then
-   inv[t.name]-=1
-   credits+=t.val
-   sfx(2)
-   add(popups,{x=64,y=70,t=24,txt="+"..t.val.." cr"})
-  else
-   sfx(3)
-  end
- end
- -- left: sell all of selected
- if btnp(0) then
-  local t=junk_types[shop_sel]
-  local q=inv[t.name] or 0
-  if q>0 then
-   inv[t.name]=0
-   credits+=q*t.val
-   sfx(2)
-   add(popups,{x=64,y=70,t=30,txt="+"..(q*t.val).." cr"})
-  else
-   sfx(3)
-  end
- end
- -- x: undock
  if btnp(5) then
   mode="fish"
   dock_msg_t=40
   sfx(4)
+  return
  end
- for p in all(popups) do
-  p.y-=0.5
-  p.t-=1
-  if p.t<=0 then del(popups,p) end
+ -- tab switch
+ if btnp(0) then
+  shop_tab=shop_tab==1 and 2 or 1
+  shop_sel=1
+  sfx(5)
+  return
+ end
+ if btnp(1) then
+  shop_tab=shop_tab==1 and 2 or 1
+  shop_sel=1
+  sfx(5)
+  return
+ end
+
+ if shop_tab==1 then
+  local n=#junk_types
+  if btnp(2) then shop_sel=((shop_sel-2)%n)+1 sfx(5) end
+  if btnp(3) then shop_sel=(shop_sel%n)+1 sfx(5) end
+  if btnp(4) then
+   local t=junk_types[shop_sel]
+   local q=inv[t.name] or 0
+   if q>0 then
+    inv[t.name]=q-1
+    credits+=t.val
+    sfx(2)
+    add(popups,{x=64,y=70,t=24,txt="+"..t.val.." cr",c=11})
+   else
+    sfx(3)
+   end
+  end
+ else
+  local n=#upgrades
+  if btnp(2) then shop_sel=((shop_sel-2)%n)+1 sfx(5) end
+  if btnp(3) then shop_sel=(shop_sel%n)+1 sfx(5) end
+  if btnp(4) then
+   local u=upgrades[shop_sel]
+   local cur=lvl[u.key]
+   if cur<#u.levels then
+    local cost=u.levels[cur+1].cost
+    if credits>=cost then
+     credits-=cost
+     lvl[u.key]=cur+1
+     apply_upgrades()
+     sfx(2)
+     add(popups,{x=64,y=80,t=30,txt=u.label.." up!",c=10})
+    else
+     sfx(3)
+    end
+   else
+    sfx(3)
+   end
+  end
  end
 end
 
 function check_catch()
  if hooked then return end
  for j in all(junk) do
-  if dist(j.x,j.y,hook.x,hook.y)<3.5 then
+  if dist(j.x,j.y,hook.x,hook.y)<catch_r then
    hooked=j
    sfx(1)
    return
@@ -242,14 +322,13 @@ function draw_fish()
  for j in all(junk) do draw_junk(j) end
 
  draw_topbar()
- -- hint when idle
  if arm_state=="idle" then
   print("\139\145 aim  \142 drop  \151 reel",18,118,5)
   print("\131 dock at shop",36,124,6)
  end
 
  for p in all(popups) do
-  print(p.txt,p.x-#p.txt*2,p.y,7)
+  print(p.txt,p.x-#p.txt*2,p.y,p.c or 7)
  end
 
  if catch_flash>0 then
@@ -268,50 +347,91 @@ end
 
 function draw_shop()
  cls(1)
- -- starry shop bg
  for s in all(stars) do
   pset(s.x,s.y,s.c==1 and 5 or s.c)
  end
- -- shop window
- rectfill(8,16,119,112,0)
- rect(8,16,119,112,6)
- rect(9,17,118,111,5)
+ rectfill(8,16,119,118,0)
+ rect(8,16,119,118,6)
+ rect(9,17,118,117,5)
  print("salvage shop",40,20,7)
- line(10,28,117,28,5)
+ -- tabs
+ draw_tab("sell",  14,28,shop_tab==1)
+ draw_tab("upgrade",46,28,shop_tab==2)
+ print("\139\145 tab",90,30,5)
+ line(10,36,117,36,5)
 
- -- list
- local y=34
+ if shop_tab==1 then draw_sell_tab()
+ else draw_upgrade_tab() end
+
+ line(10,104,117,104,5)
+ if shop_tab==1 then
+  print("\142 sell 1   \151 leave",18,108,6)
+ else
+  print("\142 buy   \151 leave",24,108,6)
+ end
+ local total=0
+ for t in all(junk_types) do total+=(inv[t.name] or 0)*t.val end
+ print("hold: "..total.."cr",70,98,12)
+
+ draw_topbar()
+
+ for p in all(popups) do
+  print(p.txt,p.x-#p.txt*2,p.y,p.c or 11)
+ end
+end
+
+function draw_tab(label,x,y,active)
+ if active then
+  rectfill(x-2,y-1,x+#label*4,y+5,2)
+  print(label,x,y,7)
+ else
+  print(label,x,y,5)
+ end
+end
+
+function draw_sell_tab()
+ local y=40
  for i=1,#junk_types do
   local t=junk_types[i]
   local q=inv[t.name] or 0
-  local row_y=y+(i-1)*12
+  local row_y=y+(i-1)*9
   if i==shop_sel then
-   rectfill(12,row_y-1,115,row_y+8,2)
+   rectfill(12,row_y-1,115,row_y+7,2)
    print("\135",13,row_y+1,8)
   end
-  -- icon
   draw_junk_icon(t,22,row_y+3)
   print(t.name,30,row_y+1,7)
   print("x"..q,60,row_y+1,6)
   print(t.val.."cr",80,row_y+1,11)
-  if i==shop_sel then
-   print("each",100,row_y+1,5)
-  end
  end
+end
 
- -- footer
- line(10,98,117,98,5)
- print("\142 sell 1   \139 sell all   \151 leave",13,102,6)
- -- credits + total
- local total=0
- for t in all(junk_types) do total+=(inv[t.name] or 0)*t.val end
- print("hold value: "..total.."cr",13,90,12)
-
- -- topbar
- draw_topbar()
-
- for p in all(popups) do
-  print(p.txt,p.x-#p.txt*2,p.y,11)
+function draw_upgrade_tab()
+ local y=40
+ for i=1,#upgrades do
+  local u=upgrades[i]
+  local cur=lvl[u.key]
+  local maxed=cur>=#u.levels
+  local row_y=y+(i-1)*18
+  if i==shop_sel then
+   rectfill(12,row_y-1,115,row_y+15,2)
+   print("\135",13,row_y+1,8)
+  end
+  print(u.label,18,row_y+1,7)
+  -- pip bar
+  for p=1,#u.levels do
+   local px=46+(p-1)*4
+   local col=p<=cur and 11 or 5
+   rectfill(px,row_y+1,px+2,row_y+4,col)
+  end
+  if maxed then
+   print("max",92,row_y+1,10)
+  else
+   local cost=u.levels[cur+1].cost
+   local c=credits>=cost and 10 or 8
+   print(cost.."cr",92,row_y+1,c)
+  end
+  print(u.desc,18,row_y+8,6)
  end
 end
 
@@ -319,10 +439,8 @@ function draw_topbar()
  rectfill(0,0,127,7,1)
  line(0,7,127,7,0)
  print("void angler",2,1,7)
- -- credits
  print("cr "..credits,86,1,10)
  if mode=="fish" then
-  -- arm gauge
   local gx=44 local gy=2
   rect(gx,gy,gx+30,gy+3,5)
   local fill=flr((arm_len/arm_max)*29)
@@ -360,6 +478,14 @@ function draw_ship()
  pset(sx-8,sy+2,8)
  pset(sx+8,sy+2,8)
  rectfill(sx-1,sy+3,sx+1,sy+5,5)
+ -- magnet field hint when arm out
+ if arm_state!="idle" and catch_r>=5 then
+  for i=0,11 do
+   local a=i/12+time()*0.5
+   pset(hook.x+cos(a)*catch_r,hook.y+sin(a)*catch_r,
+    catch_r>=7 and 12 or 13)
+  end
+ end
 end
 
 function draw_arm()
@@ -407,6 +533,21 @@ function draw_junk_icon(t,x,y)
   pset(sx-1,sy,t.col)
   pset(sx+1,sy,t.col)
   pset(sx,sy+1,t.col)
+ elseif t.name=="core" then
+  circfill(sx,sy,1,t.col)
+  pset(sx,sy,7)
+  pset(sx-2,sy,t.col)
+  pset(sx+2,sy,t.col)
+ elseif t.name=="relic" then
+  pset(sx,sy-2,7)
+  pset(sx-1,sy-1,t.col)
+  pset(sx+1,sy-1,t.col)
+  pset(sx-2,sy,t.col)
+  pset(sx+2,sy,t.col)
+  pset(sx,sy,7)
+  pset(sx-1,sy+1,t.col)
+  pset(sx+1,sy+1,t.col)
+  pset(sx,sy+2,t.col)
  end
 end
 
