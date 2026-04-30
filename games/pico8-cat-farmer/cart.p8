@@ -32,9 +32,21 @@ function _init()
  msgt=180
  bx=0
  by=0
- pond_x=cols-1
+ pond_x=cols-4
  pond_y=0
+ pond_w=4
+ pond_h=3
+ fishing=false
+ fish_state=0
+ fish_timer=0
+ bobber_x=0
+ bobber_y=0
  parts={}
+end
+
+function in_pond(tx,ty)
+ return tx>=pond_x and tx<pond_x+pond_w
+        and ty>=pond_y and ty<pond_y+pond_h
 end
 
 function _update60()
@@ -83,6 +95,21 @@ function _update60()
   if q.life<=0 then deli(parts,i) end
  end
 
+ if fishing then
+  fish_timer-=1
+  if fish_timer<=0 then
+   if fish_state==1 then
+    fish_state=2
+    fish_timer=45
+    sfx(2)
+   else
+    fishing=false
+    fish_state=0
+    say("fish got away")
+   end
+  end
+ end
+
  if msgt>0 then msgt-=1 end
 end
 
@@ -103,6 +130,17 @@ function tile_at()
 end
 
 function act_z()
+ if fishing and fish_state==2 then
+  fishing=false
+  fish_state=0
+  local g=3+flr(rnd(5))
+  gold+=g
+  sfx(3)
+  spawn_parts(bobber_x,bobber_y,12,8)
+  spawn_parts(bobber_x,bobber_y,9,4)
+  say("caught a fish +"..g.."g")
+  return
+ end
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
  if tx==bx and ty==by then
@@ -116,8 +154,16 @@ function act_z()
   end
   return
  end
- if tx==pond_x and ty==pond_y then
-  say("press x to fill can")
+ if in_pond(tx,ty) then
+  if not fishing then
+   fishing=true
+   fish_state=1
+   fish_timer=60+flr(rnd(120))
+   bobber_x=gx+pond_x*cell+4+flr(rnd(pond_w*cell-8))
+   bobber_y=gy+pond_y*cell+4+flr(rnd(pond_h*cell-8))
+   sfx(2)
+   say("casting line...")
+  end
   return
  end
  local p=plots[tx][ty]
@@ -148,7 +194,7 @@ end
 function act_x()
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
- if tx==pond_x and ty==pond_y then
+ if in_pond(tx,ty) then
   if water<water_max then
    water=water_max
    sfx(4)
@@ -236,16 +282,39 @@ function _draw()
 
  local ppx=gx+pond_x*cell
  local ppy=gy+pond_y*cell
- rectfill(ppx,ppy,ppx+cell-1,ppy+cell-1,1)
- rectfill(ppx+1,ppy+1,ppx+cell-2,ppy+cell-2,12)
- local rt=daytime\20
- pset(ppx+2+rt%3,ppy+2,7)
- pset(ppx+5-rt%2,ppy+5,7)
- pset(ppx+1,ppy+6,1)
- pset(ppx+6,ppy+1,1)
+ local pw=pond_w*cell
+ local ph=pond_h*cell
+ rectfill(ppx,ppy,ppx+pw-1,ppy+ph-1,1)
+ rectfill(ppx+1,ppy+1,ppx+pw-2,ppy+ph-2,12)
+ local rt=daytime\15
+ for i=0,4 do
+  local rx=ppx+1+(i*7+rt)%(pw-3)
+  local ry=ppy+1+(i*5+rt\3)%(ph-3)
+  pset(rx,ry,7)
+  pset(rx+1,ry,13)
+ end
+ pset(ppx+pw-4,ppy+ph-3,3)
+ pset(ppx+pw-3,ppy+ph-3,11)
+ pset(ppx+pw-3,ppy+ph-4,3)
+ local fx=ppx+2+(daytime\6)%(pw-4)
+ local fy=ppy+ph-4
+ pset(fx,fy,13)
+ pset(fx+1,fy,13)
 
  for q in all(parts) do
   pset(q.x,q.y,q.c)
+ end
+
+ if fishing then
+  local cx=cat.x+4
+  local cy=cat.y+3
+  line(cx,cy,bobber_x,bobber_y,7)
+  circfill(bobber_x,bobber_y,1,8)
+  pset(bobber_x,bobber_y-1,7)
+  if fish_state==2 then
+   local bob=(daytime\4)%2
+   print("!",bobber_x-1,bobber_y-8-bob,8)
+  end
  end
 
  draw_cat(cat.x,cat.y,cat.f,cat.walk)
@@ -263,8 +332,8 @@ function _draw()
   local w=#m*4
   rectfill(64-w/2-2,118,64+w/2,124,0)
   print(m,64-w/2,119,7)
- elseif day==1 and daytime<420 then
-  print("z:till/plant/harvest x:water",2,118,6)
+ elseif day==1 and daytime<480 then
+  print("z:work/fish  x:water/fill",4,118,6)
  end
 end
 
