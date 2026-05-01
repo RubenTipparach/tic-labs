@@ -17,7 +17,7 @@ function _init()
  for x=0,cols-1 do
   plots[x]={}
   for y=0,rows-1 do
-   plots[x][y]={state=0,water=0,timer=0}
+   plots[x][y]={state=0,water=0,timer=0,idle=0}
   end
  end
  cat={x=60,y=60,f=1,walk=0,dx=0,dy=1}
@@ -30,6 +30,8 @@ function _init()
  daylen=60*60
  crop_time=30*60
  wet_dur=15*60
+ till_decay=45*60
+ wilt_time=20*60
  msg="welcome to your farm"
  msgt=180
  bx=0
@@ -94,11 +96,29 @@ function _update60()
   for y=0,rows-1 do
    local p=plots[x][y]
    if p.water>0 then p.water-=1 end
-   if p.state==2 and p.water>0 then
-    p.timer+=1
-    if p.timer>=crop_time then
-     p.state=3
-     spawn_parts(gx+x*cell+4,gy+y*cell+4,11,4)
+   if p.state==1 then
+    p.idle+=1
+    if p.idle>=till_decay then
+     p.state=0
+     p.idle=0
+    end
+   elseif p.state==2 then
+    if p.water>0 then
+     p.idle=0
+     p.timer+=1
+     if p.timer>=crop_time then
+      p.state=3
+      p.idle=0
+      spawn_parts(gx+x*cell+4,gy+y*cell+4,11,4)
+     end
+    else
+     p.idle+=1
+     if p.idle>=wilt_time then
+      p.state=4
+      p.idle=0
+      p.timer=0
+      spawn_parts(gx+x*cell+4,gy+y*cell+4,4,4)
+     end
     end
    end
   end
@@ -188,6 +208,7 @@ function act_z()
  local p=plots[tx][ty]
  if p.state==0 then
   p.state=1
+  p.idle=0
   sfx(1)
   spawn_parts(gx+tx*cell+4,gy+ty*cell+5,4,3)
   say("tilled")
@@ -196,6 +217,7 @@ function act_z()
    seeds-=1
    p.state=2
    p.timer=0
+   p.idle=0
    sfx(2)
    say("planted seed")
   else
@@ -203,10 +225,18 @@ function act_z()
   end
  elseif p.state==3 then
   p.state=0
+  p.idle=0
   gold+=3
   sfx(3)
   spawn_parts(gx+tx*cell+4,gy+ty*cell+4,9,8)
   say("+3 gold")
+ elseif p.state==4 then
+  p.state=1
+  p.idle=0
+  p.timer=0
+  sfx(1)
+  spawn_parts(gx+tx*cell+4,gy+ty*cell+5,4,4)
+  say("cleared dead plant")
  end
 end
 
@@ -301,6 +331,14 @@ function _draw()
     line(px+3,py+2,px+5,py+2,11)
     pset(px+2,py+3,11)
     pset(px+5,py+3,11)
+   elseif p.state==4 then
+    line(px+4,py+6,px+4,py+4,4)
+    pset(px+2,py+5,4)
+    pset(px+3,py+5,4)
+    pset(px+5,py+5,4)
+    pset(px+6,py+5,4)
+    pset(px+3,py+4,2)
+    pset(px+5,py+4,2)
    end
   end
  end
