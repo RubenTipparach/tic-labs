@@ -17,11 +17,17 @@ function _init()
  for x=0,cols-1 do
   plots[x]={}
   for y=0,rows-1 do
-   plots[x][y]={state=0,water=0,timer=0,idle=0}
+   plots[x][y]={state=0,water=0,timer=0,idle=0,crop=1}
   end
  end
  cat={x=60,y=60,f=1,walk=0,dx=0,dy=1}
- seeds=5
+ crop_types={
+  {abbr="car",name="carrot",price=2,sell=3,grow=30*60,color=9},
+  {abbr="tom",name="tomato",price=3,sell=5,grow=45*60,color=8},
+  {abbr="cor",name="corn",price=4,sell=7,grow=60*60,color=10},
+ }
+ seeds={5,0,0}
+ selected=1
  gold=0
  water=5
  water_max=5
@@ -106,7 +112,7 @@ function _update60()
     if p.water>0 then
      p.idle=0
      p.timer+=1
-     if p.timer>=crop_time then
+     if p.timer>=crop_types[p.crop].grow then
       p.state=3
       p.idle=0
       spawn_parts(gx+x*cell+4,gy+y*cell+4,11,4)
@@ -182,13 +188,14 @@ function act_z()
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
  if tx==bx and ty==by then
-  if gold>=2 then
-   gold-=2
-   seeds+=1
+  local ct=crop_types[selected]
+  if gold>=ct.price then
+   gold-=ct.price
+   seeds[selected]+=1
    sfx(0)
-   say("bought 1 seed (-2g)")
+   say("bought "..ct.name.." (-"..ct.price.."g)")
   else
-   say("need 2 gold")
+   say("need "..ct.price.." gold")
   end
   return
  end
@@ -213,23 +220,25 @@ function act_z()
   spawn_parts(gx+tx*cell+4,gy+ty*cell+5,4,3)
   say("tilled")
  elseif p.state==1 then
-  if seeds>0 then
-   seeds-=1
+  if seeds[selected]>0 then
+   seeds[selected]-=1
    p.state=2
+   p.crop=selected
    p.timer=0
    p.idle=0
    sfx(2)
-   say("planted seed")
+   say("planted "..crop_types[selected].name)
   else
-   say("no seeds, visit barn")
+   say("no "..crop_types[selected].name.." seeds")
   end
  elseif p.state==3 then
+  local ct=crop_types[p.crop]
   p.state=0
   p.idle=0
-  gold+=3
+  gold+=ct.sell
   sfx(3)
-  spawn_parts(gx+tx*cell+4,gy+ty*cell+4,9,8)
-  say("+3 gold")
+  spawn_parts(gx+tx*cell+4,gy+ty*cell+4,ct.color,8)
+  say("+"..ct.sell.."g "..ct.name)
  elseif p.state==4 then
   p.state=1
   p.idle=0
@@ -243,6 +252,13 @@ end
 function act_x()
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
+ if tx==bx and ty==by then
+  selected=(selected%#crop_types)+1
+  local ct=crop_types[selected]
+  sfx(0)
+  say("seed: "..ct.name.." ("..seeds[selected]..")")
+  return
+ end
  local ftx,fty=front_tile()
  if in_pond(ftx,fty) then
   if water<water_max then
@@ -325,7 +341,8 @@ function _draw()
      pset(px+4,py+1,10)
     end
    elseif p.state==3 then
-    rectfill(px+3,py+4,px+5,py+6,9)
+    local ct=crop_types[p.crop]
+    rectfill(px+3,py+4,px+5,py+6,ct.color)
     pset(px+3,py+6,8)
     line(px+4,py+1,px+4,py+3,11)
     line(px+3,py+2,px+5,py+2,11)
@@ -393,7 +410,7 @@ function _draw()
  rectfill(0,0,127,7,1)
  line(0,7,127,7,0)
  print("\142",1,1,11)
- print("s:"..seeds,6,1,7)
+ print(crop_types[selected].abbr..":"..seeds[selected],6,1,7)
  print("g:"..gold,30,1,10)
  print("w:"..water,54,1,12)
  print("day "..day,82,1,7)
