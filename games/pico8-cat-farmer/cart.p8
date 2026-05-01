@@ -29,7 +29,7 @@ function _init()
  daytime=0
  daylen=60*60
  crop_time=30*60
- wet_dur=8*60
+ wet_dur=15*60
  msg="welcome to your farm"
  msgt=180
  bx=0
@@ -94,10 +94,8 @@ function _update60()
   for y=0,rows-1 do
    local p=plots[x][y]
    if p.water>0 then p.water-=1 end
-   if p.state==2 then
-    local rate=1
-    if p.water>0 then rate=2 end
-    p.timer+=rate
+   if p.state==2 and p.water>0 then
+    p.timer+=1
     if p.timer>=crop_time then
      p.state=3
      spawn_parts(gx+x*cell+4,gy+y*cell+4,11,4)
