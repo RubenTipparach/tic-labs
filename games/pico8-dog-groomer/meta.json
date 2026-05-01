@@ -1,0 +1,7 @@
+{
+  "title": "Dog Groomer (PICO-8)",
+  "author": "tic-labs",
+  "description": "Brush tangles, scrub off dirt, snip overgrown fur, and dry the suds before each customer's patience runs out.",
+  "controls": "Arrow keys to move, Z to use the current tool, X cycles tools",
+  "thumbnail_color": "#2a456b"
+}
