@@ -28,7 +28,7 @@ function _init()
  day=1
  daytime=0
  daylen=60*60
- crop_time=10*60
+ crop_time=30*60
  wet_dur=8*60
  msg="welcome to your farm"
  msgt=180
@@ -267,21 +267,34 @@ function _draw()
    end
    if p.state==2 then
     local g=p.timer/crop_time
-    if g<0.4 then
-     pset(px+3,py+5,4)
+    if g<0.2 then
+     pset(px+3,py+6,4)
+     pset(px+4,py+6,4)
      pset(px+4,py+5,4)
-    elseif g<0.75 then
-     line(px+3,py+6,px+3,py+4,3)
+    elseif g<0.4 then
+     pset(px+4,py+6,3)
+     pset(px+4,py+5,11)
+     pset(px+3,py+5,3)
+    elseif g<0.6 then
      line(px+4,py+6,px+4,py+4,3)
-     pset(px+2,py+4,11)
+     pset(px+3,py+5,11)
+     pset(px+5,py+5,11)
+     pset(px+4,py+4,11)
+    elseif g<0.8 then
+     line(px+4,py+6,px+4,py+3,3)
+     pset(px+3,py+4,11)
      pset(px+5,py+4,11)
+     pset(px+2,py+5,11)
+     pset(px+6,py+5,11)
+     pset(px+4,py+3,11)
     else
-     line(px+3,py+6,px+3,py+2,3)
      line(px+4,py+6,px+4,py+2,3)
-     pset(px+2,py+2,11)
-     pset(px+5,py+2,11)
-     pset(px+3,py+1,11)
-     pset(px+4,py+1,11)
+     pset(px+3,py+3,11)
+     pset(px+5,py+3,11)
+     pset(px+2,py+4,11)
+     pset(px+6,py+4,11)
+     pset(px+4,py+2,11)
+     pset(px+4,py+1,10)
     end
    elseif p.state==3 then
     rectfill(px+3,py+4,px+5,py+6,9)
