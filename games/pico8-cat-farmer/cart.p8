@@ -18,7 +18,7 @@ function _init()
    plots[x][y]={state=0,water=0,timer=0}
   end
  end
- cat={x=60,y=60,f=1,walk=0}
+ cat={x=60,y=60,f=1,walk=0,dx=0,dy=1}
  seeds=5
  gold=0
  water=5
@@ -49,6 +49,24 @@ function in_pond(tx,ty)
         and ty>=pond_y and ty<pond_y+pond_h
 end
 
+function blocked(nx,ny)
+ local x0=flr((nx-gx)/cell)
+ local y0=flr((ny-gy)/cell)
+ local x1=flr((nx+7-gx)/cell)
+ local y1=flr((ny+7-gy)/cell)
+ for tx=x0,x1 do
+  for ty=y0,y1 do
+   if in_pond(tx,ty) then return true end
+  end
+ end
+ return false
+end
+
+function front_tile()
+ local tx,ty=tile_at()
+ return tx+cat.dx,ty+cat.dy
+end
+
 function _update60()
  daytime+=1
  if daytime>=daylen then
@@ -57,14 +75,14 @@ function _update60()
  end
 
  local mvx,mvy=0,0
- if btn(0) then mvx-=1 cat.f=-1 end
- if btn(1) then mvx+=1 cat.f=1 end
- if btn(2) then mvy-=1 end
- if btn(3) then mvy+=1 end
- cat.x+=mvx
- cat.y+=mvy
- cat.x=mid(gx,cat.x,gx+cols*cell-8)
- cat.y=mid(gy+1,cat.y,gy+rows*cell-8)
+ if btn(0) then mvx-=1 cat.f=-1 cat.dx=-1 cat.dy=0 end
+ if btn(1) then mvx+=1 cat.f=1 cat.dx=1 cat.dy=0 end
+ if btn(2) then mvy-=1 cat.dx=0 cat.dy=-1 end
+ if btn(3) then mvy+=1 cat.dx=0 cat.dy=1 end
+ local nx=mid(gx,cat.x+mvx,gx+cols*cell-8)
+ local ny=mid(gy+1,cat.y+mvy,gy+rows*cell-8)
+ if not blocked(nx,cat.y) then cat.x=nx end
+ if not blocked(cat.x,ny) then cat.y=ny end
  if mvx~=0 or mvy~=0 then cat.walk+=1 end
 
  if btnp(4) then act_z() end
@@ -154,7 +172,8 @@ function act_z()
   end
   return
  end
- if in_pond(tx,ty) then
+ local ftx,fty=front_tile()
+ if in_pond(ftx,fty) then
   if not fishing then
    fishing=true
    fish_state=1
@@ -194,11 +213,12 @@ end
 function act_x()
  local tx,ty=tile_at()
  if tx<0 or tx>=cols or ty<0 or ty>=rows then return end
- if in_pond(tx,ty) then
+ local ftx,fty=front_tile()
+ if in_pond(ftx,fty) then
   if water<water_max then
    water=water_max
    sfx(4)
-   spawn_parts(gx+tx*cell+4,gy+ty*cell+2,12,8)
+   spawn_parts(gx+pond_x*cell+pond_w*cell/2,gy+pond_y*cell+pond_h*cell/2,12,8)
    say("filled watering can")
   else
    say("can already full")
