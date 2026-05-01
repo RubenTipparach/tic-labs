@@ -9,6 +9,8 @@ cols=16
 rows=14
 gx=0
 gy=8
+cw=12
+ch=12
 
 function _init()
  plots={}
@@ -52,8 +54,8 @@ end
 function blocked(nx,ny)
  local x0=flr((nx-gx)/cell)
  local y0=flr((ny-gy)/cell)
- local x1=flr((nx+7-gx)/cell)
- local y1=flr((ny+7-gy)/cell)
+ local x1=flr((nx+cw-1-gx)/cell)
+ local y1=flr((ny+ch-1-gy)/cell)
  for tx=x0,x1 do
   for ty=y0,y1 do
    if in_pond(tx,ty) then return true end
@@ -79,8 +81,8 @@ function _update60()
  if btn(1) then mvx+=1 cat.f=1 cat.dx=1 cat.dy=0 end
  if btn(2) then mvy-=1 cat.dx=0 cat.dy=-1 end
  if btn(3) then mvy+=1 cat.dx=0 cat.dy=1 end
- local nx=mid(gx,cat.x+mvx,gx+cols*cell-8)
- local ny=mid(gy+1,cat.y+mvy,gy+rows*cell-8)
+ local nx=mid(gx,cat.x+mvx,gx+cols*cell-cw)
+ local ny=mid(gy+1,cat.y+mvy,gy+rows*cell-ch)
  if not blocked(nx,cat.y) then cat.x=nx end
  if not blocked(cat.x,ny) then cat.y=ny end
  if mvx~=0 or mvy~=0 then cat.walk+=1 end
@@ -142,8 +144,8 @@ function spawn_parts(x,y,c,n)
 end
 
 function tile_at()
- local tx=flr((cat.x+4-gx)/cell)
- local ty=flr((cat.y+4-gy)/cell)
+ local tx=flr((cat.x+cw/2-gx)/cell)
+ local ty=flr((cat.y+ch/2-gy)/cell)
  return tx,ty
 end
 
@@ -326,8 +328,8 @@ function _draw()
  end
 
  if fishing then
-  local cx=cat.x+4
-  local cy=cat.y+3
+  local cx=cat.x+cw/2
+  local cy=cat.y+ch/2-2
   line(cx,cy,bobber_x,bobber_y,7)
   circfill(bobber_x,bobber_y,1,8)
   pset(bobber_x,bobber_y-1,7)
@@ -337,7 +339,7 @@ function _draw()
   end
  end
 
- draw_cat(cat.x,cat.y,cat.f,cat.walk)
+ draw_cat(cat.x+2,cat.y+2,cat.f,cat.walk)
 
  rectfill(0,0,127,7,1)
  line(0,7,127,7,0)
