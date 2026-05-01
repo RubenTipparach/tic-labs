@@ -9,8 +9,8 @@ cols=16
 rows=14
 gx=0
 gy=8
-cw=12
-ch=12
+cw=16
+ch=16
 
 function _init()
  plots={}
@@ -329,7 +329,7 @@ function _draw()
 
  if fishing then
   local cx=cat.x+cw/2
-  local cy=cat.y+ch/2-2
+  local cy=cat.y+8
   line(cx,cy,bobber_x,bobber_y,7)
   circfill(bobber_x,bobber_y,1,8)
   pset(bobber_x,bobber_y-1,7)
@@ -339,7 +339,7 @@ function _draw()
   end
  end
 
- draw_cat(cat.x+2,cat.y+2,cat.f,cat.walk)
+ draw_cat(cat.x,cat.y,cat.f,cat.walk)
 
  rectfill(0,0,127,7,1)
  line(0,7,127,7,0)
@@ -361,53 +361,83 @@ end
 
 function draw_cat(x,y,f,walk)
  local b=(walk\6)%2
- ovalfill(x+1,y+7,x+6,y+8,1)
  local hy=y+b
- ovalfill(x+1,hy+1,x+6,hy+4,9)
- pset(x+1,hy+1,4)
- pset(x+6,hy+1,4)
- line(x+2,hy-1,x+5,hy-1,15)
- line(x+1,hy,x+6,hy,15)
- pset(x+1,hy,4)
- pset(x+6,hy,4)
- line(x-1,hy+1,x+8,hy+1,15)
- pset(x-1,hy+1,4)
- pset(x+8,hy+1,4)
- pset(x+1,hy-1,9)
- pset(x+6,hy-1,9)
- pset(x+2,hy+2,11)
- pset(x+5,hy+2,11)
- pset(x+3,hy+3,8)
- pset(x+4,hy+3,8)
- line(x-2,hy+3,x,hy+3,7)
- line(x+7,hy+3,x+9,hy+3,7)
- ovalfill(x,hy+4,x+7,hy+7,9)
- pset(x+3,hy+4,0)
- pset(x+4,hy+4,0)
- pset(x+1,hy+5,4)
- pset(x+4,hy+5,4)
- pset(x+2,hy+6,4)
- pset(x+5,hy+6,4)
- pset(x+6,hy+6,4)
+ ovalfill(x+3,y+15,x+12,y+15,1)
+ line(x+1,hy+0,x+1,hy+3,9)
+ line(x+2,hy+1,x+2,hy+3,9)
+ pset(x+0,hy+2,9)
+ pset(x+0,hy+3,9)
+ pset(x+3,hy+3,9)
+ pset(x+2,hy+2,2)
+ line(x+14,hy+0,x+14,hy+3,9)
+ line(x+13,hy+1,x+13,hy+3,9)
+ pset(x+15,hy+2,9)
+ pset(x+15,hy+3,9)
+ pset(x+12,hy+3,9)
+ pset(x+13,hy+2,2)
+ line(x+6,hy+0,x+9,hy+0,10)
+ line(x+5,hy+1,x+10,hy+1,10)
+ line(x+4,hy+2,x+11,hy+2,10)
+ line(x+4,hy+3,x+11,hy+3,10)
+ pset(x+5,hy+1,7)
+ pset(x+6,hy+2,7)
+ rectfill(x+0,hy+4,x+15,hy+5,4)
+ line(x+1,hy+4,x+14,hy+4,9)
+ ovalfill(x+2,hy+6,x+13,hy+10,9)
+ ovalfill(x+3,hy+11,x+12,hy+14,9)
+ pset(x+2,hy+12,9)
+ pset(x+2,hy+13,9)
+ pset(x+13,hy+12,9)
+ pset(x+13,hy+13,9)
+ pset(x+0,hy+7,9)
+ pset(x+0,hy+8,9)
+ pset(x+15,hy+7,9)
+ pset(x+15,hy+8,9)
+ pset(x+1,hy+9,9)
+ pset(x+14,hy+9,9)
+ pset(x+3,hy+6,4)
+ pset(x+12,hy+6,4)
+ pset(x+2,hy+7,4)
+ pset(x+13,hy+7,4)
+ pset(x+0,hy+8,4)
+ pset(x+15,hy+8,4)
+ pset(x+5,hy+7,11)
+ pset(x+6,hy+7,0)
+ pset(x+5,hy+8,3)
+ pset(x+6,hy+8,11)
+ pset(x+9,hy+7,0)
+ pset(x+10,hy+7,11)
+ pset(x+9,hy+8,11)
+ pset(x+10,hy+8,3)
+ pset(x+7,hy+9,14)
+ pset(x+8,hy+9,14)
+ pset(x+7,hy+10,8)
+ pset(x+8,hy+10,8)
+ pset(x+6,hy+10,4)
+ pset(x+9,hy+10,4)
+ pset(x+7,hy+11,0)
+ pset(x+8,hy+11,0)
+ pset(x+4,hy+12,4)
+ pset(x+4,hy+13,4)
+ pset(x+8,hy+12,4)
+ pset(x+8,hy+13,4)
+ pset(x+11,hy+12,4)
+ pset(x+11,hy+13,4)
  if (walk\4)%2==0 then
-  pset(x+1,hy+7,4)
-  pset(x+5,hy+7,4)
+  rectfill(x+4,hy+14,x+5,hy+15,4)
+  rectfill(x+10,hy+14,x+11,hy+15,4)
  else
-  pset(x+2,hy+7,4)
-  pset(x+6,hy+7,4)
+  rectfill(x+5,hy+14,x+6,hy+15,4)
+  rectfill(x+9,hy+14,x+10,hy+15,4)
  end
  if f==1 then
-  pset(x+7,hy+5,9)
-  pset(x+8,hy+5,9)
-  pset(x+8,hy+4,9)
-  pset(x+8,hy+3,9)
-  pset(x+7,hy+3,9)
+  line(x+13,hy+10,x+15,hy+10,9)
+  line(x+15,hy+9,x+15,hy+12,9)
+  pset(x+15,hy+11,4)
  else
-  pset(x,hy+5,9)
-  pset(x-1,hy+5,9)
-  pset(x-1,hy+4,9)
-  pset(x-1,hy+3,9)
-  pset(x,hy+3,9)
+  line(x+0,hy+10,x+2,hy+10,9)
+  line(x+0,hy+9,x+0,hy+12,9)
+  pset(x+0,hy+11,4)
  end
 end
 __gfx__
