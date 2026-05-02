@@ -8,7 +8,10 @@ __lua__
 chars={
  {nm="aria",col=14,sub="bookish artist"},
  {nm="rex",col=8,sub="brave adventurer"},
- {nm="lumi",col=12,sub="dreamy musician"}
+ {nm="lumi",col=12,sub="dreamy musician"},
+ {nm="kai",col=11,sub="cool engineer"},
+ {nm="mei",col=9,sub="cheerful baker"},
+ {nm="nox",col=2,sub="moonlit occultist"}
 }
 
 scenes={}
@@ -82,6 +85,75 @@ scenes[3]={
    "no not really",-1}}
 }
 
+scenes[4]={
+ {"kai squints at a tiny robot on the workbench, screen glow on their face.",
+  {"ask what it does",2,
+   "watch over their shoulder",1,
+   "unplug the robot",-1}},
+ {"the robot beeps and rolls right up to your foot.",
+  {"give it a high five",2,
+   "introduce yourself",1,
+   "step out of its way",0}},
+ {"kai slides over a soldering iron and grins.",
+  {"lets build together",2,
+   "ill watch this round",1,
+   "this looks dangerous",-1}},
+ {"the prototype lights up perfectly. kai exhales relief.",
+  {"we did that together",2,
+   "all you, captain",1,
+   "took long enough",0}},
+ {"kai asks if you want to coauthor their patent.",
+  {"in a heartbeat yes",2,
+   "show me the paperwork",1,
+   "i need royalties first",-1}}
+}
+
+scenes[5]={
+ {"mei pulls a tray of warm scones from the oven and waves you over.",
+  {"smells amazing in here",2,
+   "offer to help knead",2,
+   "im on a strict diet",-1}},
+ {"she dabs flour on your nose with a giggle.",
+  {"dab some back gently",2,
+   "leave the flour on",1,
+   "scowl at the mess",-1}},
+ {"the timer dings. mei needs an extra pair of hands now.",
+  {"grab the oven mitts",2,
+   "open the door for her",1,
+   "stand around watching",0}},
+ {"mei lets you frost the very first cupcake of the batch.",
+  {"pipe a tiny heart",2,
+   "swirl it carefully",1,
+   "dump the whole bag",0}},
+ {"mei asks if youll be her tasting partner forever.",
+  {"yes, every flavor",2,
+   "ill audition first",1,
+   "i prefer savory",-1}}
+}
+
+scenes[6]={
+ {"nox shuffles a deck of strange cards by candlelight and looks up at you.",
+  {"ask for a reading",2,
+   "compliment the deck art",2,
+   "blow out the candle",-1}},
+ {"they pull the lovers card and smirk a little.",
+  {"interesting timing",2,
+   "what does that mean",1,
+   "doesnt mean anything",0}},
+ {"nox invites you to a midnight walk in the old cemetery.",
+  {"lead the way",2,
+   "bring two flashlights",1,
+   "absolutely not",-1}},
+ {"a black cat crosses your path. nox watches your reaction.",
+  {"kneel and greet it",2,
+   "say hello softly",1,
+   "shoo it away",-1}},
+ {"nox asks if you believe in the unseen.",
+  {"i believe in feelings",2,
+   "i keep an open mind",1,
+   "no, never",-1}}
+}
+
 endings={}
 endings[1]={
  b="aria smiles politely\nand returns to her book.\nyou never speak again.",
@@ -100,6 +172,24 @@ endings[3]={
  o="lumi sends you a playlist\nevery few weeks. you smile\non the bus when it plays.",
  g="lumi writes a song titled\nyour name and plays it\nfor exactly one person.",
  t="lumi rests her head\non your shoulder.\nthe stars hum along\nto a song only the two\nof you can hear."
+}
+endings[4]={
+ b="kai nods once and turns\nback to the robot. it beeps,\nthen forgets you exist.",
+ o="kai pings you when bugs\nappear. you debug late\non quiet weekends together.",
+ g="kai prints a tiny robot\nshaped like you and sets\nit on their main desk.",
+ t="kai leans over the kit\nand says you are the only\nperson worth building a\nfuture with. the robots\ncheer in binary."
+}
+endings[5]={
+ b="mei smiles softly and\nboxes up your scones.\nshe waves you out the door.",
+ o="mei sends warm cookies\nto your door on cold days.\nyou taste each one slowly.",
+ g="mei names a pastry after\nyou. it sells out daily\nbut she always saves one.",
+ t="mei takes off her apron,\nputs it around your neck,\nand says her bakery has\nalways had room for two."
+}
+endings[6]={
+ b="nox bows once and pulls\nthe curtain closed.\nyou never find them again.",
+ o="nox sends you postcards\nfrom every haunted town\nthey can find a stamp in.",
+ g="nox carves your initial\ninto a small black candle\nand burns it on full moons.",
+ t="nox slips a silver ring\nonto your finger and says\nthe stars rearranged for\nyou. you believe them."
 }
 
 state="title"
@@ -120,8 +210,10 @@ function _update60()
    state="select" sel=1 sfx(1)
   end
  elseif state=="select" then
-  if btnp(0) then sel=max(1,sel-1) sfx(0) end
-  if btnp(1) then sel=min(3,sel+1) sfx(0) end
+  if btnp(0) then sel=sel-1 if sel<1 then sel=6 end sfx(0) end
+  if btnp(1) then sel=sel+1 if sel>6 then sel=1 end sfx(0) end
+  if btnp(2) and sel>3 then sel=sel-3 sfx(0) end
+  if btnp(3) and sel<=3 then sel=sel+3 sfx(0) end
   if btnp(4) or btnp(5) then
    who=sel state="play" sc=1 score=0 sel=1 sfx(1)
   end
@@ -190,21 +282,22 @@ end
 
 function draw_select()
  cls(1)
- pcen("choose your interest",10,7)
- for i=1,3 do
-  local x=4+(i-1)*42
-  local y=28
+ pcen("choose your interest",2,7)
+ for i=1,6 do
+  local col=(i-1)%3
+  local row=flr((i-1)/3)
+  local x=4+col*42
+  local y=10+row*41
   draw_portrait(i,x,y)
   if sel==i then
    rect(x-2,y-2,x+41,y+41,7+(t\10)%2)
   end
  end
- rectfill(8,80,119,108,0)
- rect(8,80,119,108,chars[sel].col)
- pcen(chars[sel].nm,86,chars[sel].col)
- pcen(chars[sel].sub,94,7)
- pcen("left right: choose",116,6)
- pcen("z: confirm",124,6)
+ rectfill(2,93,125,113,0)
+ rect(2,93,125,113,chars[sel].col)
+ pcen(chars[sel].nm,96,chars[sel].col)
+ pcen(chars[sel].sub,104,7)
+ pcen("arrows: pick   z: confirm",120,6)
 end
 
 function draw_portrait(i,x,y)
@@ -237,7 +330,7 @@ function draw_portrait(i,x,y)
   pset(x+22,y+22,0) pset(x+23,y+22,0)
   line(x+18,y+27,x+22,y+27,2)
   rectfill(x+12,y+32,x+28,y+38,8)
- else
+ elseif i==3 then
   rectfill(x,y,x+39,y+39,1)
   for k=0,8 do
    pset(x+flr((k*5+t/4)%37)+1,y+flr((k*7+t/8)%37)+1,7)
@@ -252,6 +345,70 @@ function draw_portrait(i,x,y)
   rectfill(x+7,y+18,x+9,y+24,5)
   rectfill(x+31,y+18,x+33,y+24,5)
   rectfill(x+8,y+14,x+32,y+16,5)
+ elseif i==4 then
+  rectfill(x,y,x+39,y+39,1)
+  for k=0,3 do
+   line(x+5+k*9,y+1,x+5+k*9,y+9,13)
+   pset(x+5+k*9,y+10,11)
+  end
+  line(x+1,y+11,x+38,y+11,13)
+  circfill(x+20,y+18,11,3)
+  rectfill(x+10,y+18,x+30,y+34,3)
+  rectfill(x+22,y+12,x+33,y+18,11)
+  circfill(x+20,y+24,8,15)
+  circ(x+17,y+24,2,12)
+  circ(x+23,y+24,2,12)
+  line(x+19,y+24,x+21,y+24,12)
+  pset(x+17,y+24,0)
+  pset(x+23,y+24,0)
+  line(x+18,y+28,x+22,y+28,2)
+  rectfill(x+12,y+34,x+28,y+38,5)
+  line(x+18,y+34,x+22,y+34,11)
+ elseif i==5 then
+  rectfill(x,y,x+39,y+39,9)
+  for k=0,7 do
+   line(x+k*5,y+1,x+k*5+10,y+11,10)
+  end
+  rectfill(x+12,y+8,x+28,y+14,7)
+  circfill(x+16,y+6,4,7)
+  circfill(x+24,y+6,4,7)
+  circfill(x+20,y+4,4,7)
+  circfill(x+10,y+22,4,14)
+  circfill(x+30,y+22,4,14)
+  circfill(x+20,y+24,8,15)
+  line(x+15,y+23,x+18,y+24,0)
+  line(x+22,y+24,x+25,y+23,0)
+  pset(x+14,y+27,14)
+  pset(x+15,y+27,14)
+  pset(x+25,y+27,14)
+  pset(x+26,y+27,14)
+  line(x+17,y+28,x+23,y+28,2)
+  pset(x+17,y+27,2)
+  pset(x+23,y+27,2)
+  rectfill(x+10,y+34,x+30,y+38,7)
+  pset(x+12,y+18,7)
+  pset(x+28,y+19,7)
+ else
+  rectfill(x,y,x+39,y+39,2)
+  circfill(x+8,y+8,3,7)
+  circfill(x+9,y+7,3,2)
+  for k=0,5 do
+   pset(x+(k*7+3)%36+2,y+(k*5+1)%14+1,7)
+  end
+  circfill(x+20,y+18,12,0)
+  rectfill(x+8,y+18,x+32,y+38,0)
+  rectfill(x+11,y+15,x+29,y+19,0)
+  circfill(x+20,y+24,7,7)
+  line(x+14,y+22,x+18,y+22,2)
+  line(x+22,y+22,x+26,y+22,2)
+  pset(x+17,y+24,2)
+  pset(x+23,y+24,2)
+  line(x+18,y+28,x+22,y+28,8)
+  pset(x+19,y+29,8)
+  pset(x+21,y+29,8)
+  line(x+13,y+33,x+27,y+33,0)
+  pset(x+20,y+33,8)
+  rectfill(x+10,y+34,x+30,y+38,1)
  end
  rect(x,y,x+39,y+39,7)
 end
@@ -308,10 +465,32 @@ function draw_play()
   rectfill(0,0,127,40,12)
   rectfill(0,40,127,46,9)
   rectfill(0,46,127,127,5)
- else
+ elseif who==3 then
   for k=0,15 do
    pset(flr((k*9+t/2)%128),flr((k*13+t/3)%128),7)
   end
+ elseif who==4 then
+  for k=0,7 do
+   line(0,k*16,127,k*16,1)
+   line(k*16,0,k*16,127,1)
+  end
+  for k=0,5 do
+   pset(flr((k*23+t/2)%128),flr((k*17+t/3)%128),11)
+  end
+ elseif who==5 then
+  rectfill(0,0,127,42,9)
+  rectfill(0,42,127,84,10)
+  rectfill(0,84,127,127,15)
+  for k=0,10 do
+   pset(flr((k*11+t/4)%128),flr((k*13+t/3)%128),7)
+  end
+ else
+  cls(1)
+  for k=0,12 do
+   pset(flr((k*9+t/3)%128),flr((k*7+t/5)%128),7)
+  end
+  circfill(110,18,5,2)
+  circfill(108,16,5,1)
  end
  local c=chars[who]
  draw_portrait(who,4,6)
@@ -354,9 +533,9 @@ function draw_ending()
  local et,etxt
  if score<=3 then
   et="just friends?" etxt=endings[who].b
- elseif score<=7 then
+ elseif score<=6 then
   et="warm friendship" etxt=endings[who].o
- elseif score<=11 then
+ elseif score<=8 then
   et="something special" etxt=endings[who].g
  else
   et="true love" etxt=endings[who].t
