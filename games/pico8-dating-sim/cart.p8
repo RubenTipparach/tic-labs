@@ -14,6 +14,23 @@ chars={
  {nm="nox",col=2,sub="moonlit occultist"}
 }
 
+gifts={
+ {nm="a red rose"},
+ {nm="a thick book"},
+ {nm="a sweet snack"},
+ {nm="a tiny gadget"}
+}
+
+-- gift_pts[char_idx][gift_idx]
+gift_pts={
+ {2,3,0,-1},
+ {0,1,3,2},
+ {2,1,1,1},
+ {1,2,1,3},
+ {2,1,3,0},
+ {3,2,-1,0}
+}
+
 scenes={}
 
 scenes[1]={
@@ -199,6 +216,8 @@ sc=1
 score=0
 flash=0
 t=0
+gift_sel=1
+gift_idx=1
 
 function _init() end
 
@@ -215,7 +234,23 @@ function _update60()
   if btnp(2) and sel>3 then sel=sel-3 sfx(0) end
   if btnp(3) and sel<=3 then sel=sel+3 sfx(0) end
   if btnp(4) or btnp(5) then
-   who=sel state="play" sc=1 score=0 sel=1 sfx(1)
+   who=sel state="gift" sc=1 score=0 sel=1 gift_sel=1 sfx(1)
+  end
+ elseif state=="gift" then
+  if btnp(0) then gift_sel=gift_sel-1 if gift_sel<1 then gift_sel=4 end sfx(0) end
+  if btnp(1) then gift_sel=gift_sel+1 if gift_sel>4 then gift_sel=1 end sfx(0) end
+  if btnp(4) or btnp(5) then
+   gift_idx=gift_sel
+   local pts=gift_pts[who][gift_idx]
+   score+=pts
+   if pts>=2 then sfx(2) flash=20
+   elseif pts<0 then sfx(3)
+   else sfx(1) end
+   state="gift_react"
+  end
+ elseif state=="gift_react" then
+  if btnp(4) or btnp(5) then
+   state="play" sel=1 sfx(1)
   end
  elseif state=="play" then
   local s=scenes[who][sc]
@@ -240,6 +275,8 @@ end
 function _draw()
  if state=="title" then draw_title()
  elseif state=="select" then draw_select()
+ elseif state=="gift" then draw_gift_pick()
+ elseif state=="gift_react" then draw_gift_react()
  elseif state=="play" then draw_play()
  elseif state=="ending" then draw_ending()
  end
@@ -298,6 +335,94 @@ function draw_select()
  pcen(chars[sel].nm,96,chars[sel].col)
  pcen(chars[sel].sub,104,7)
  pcen("arrows: pick   z: confirm",120,6)
+end
+
+function draw_gift_icon(i,x,y)
+ if i==1 then
+  circfill(x,y-2,3,8)
+  circfill(x,y-2,2,2)
+  pset(x,y-3,14)
+  line(x,y,x,y+6,3)
+  line(x-2,y+2,x,y+1,3)
+  line(x+2,y+3,x,y+2,3)
+ elseif i==2 then
+  rectfill(x-5,y-5,x+5,y+5,4)
+  rect(x-5,y-5,x+5,y+5,9)
+  line(x,y-4,x,y+4,9)
+  line(x-3,y-1,x-1,y-1,7)
+  line(x+1,y-1,x+3,y-1,7)
+  line(x-3,y+1,x-1,y+1,7)
+  line(x+1,y+1,x+3,y+1,7)
+ elseif i==3 then
+  circfill(x,y,6,4)
+  circfill(x,y,5,15)
+  pset(x-2,y-1,4)
+  pset(x+1,y+2,4)
+  pset(x,y-3,4)
+  pset(x+2,y-1,4)
+  pset(x-1,y+2,4)
+ else
+  rectfill(x-4,y-4,x+4,y+4,3)
+  rect(x-4,y-4,x+4,y+4,11)
+  pset(x-2,y-2,11)
+  pset(x+2,y-2,11)
+  pset(x-2,y+2,11)
+  pset(x+2,y+2,11)
+  pset(x,y,11)
+  for k=-2,2,2 do
+   pset(x-5,y+k,5) pset(x+5,y+k,5)
+   pset(x+k,y-5,5) pset(x+k,y+5,5)
+  end
+ end
+end
+
+function draw_gift_pick()
+ cls(2)
+ pcen("pick a gift for "..chars[who].nm,2,7)
+ draw_portrait(who,44,10)
+ for i=1,4 do
+  local x=4+(i-1)*32
+  local y=58
+  rectfill(x,y,x+27,y+31,0)
+  rect(x,y,x+27,y+31,5)
+  draw_gift_icon(i,x+14,y+15)
+  if gift_sel==i then
+   rect(x-2,y-2,x+29,y+33,7+(t\10)%2)
+  end
+ end
+ rectfill(2,94,125,114,0)
+ rect(2,94,125,114,7)
+ pcen(gifts[gift_sel].nm,98,7)
+ pcen("for "..chars[who].nm,106,chars[who].col)
+ pcen("left right pick   z confirm",120,6)
+end
+
+function draw_gift_react()
+ cls(0)
+ for k=0,8 do
+  pheart(flr((k*17+t/3)%140)-6,flr((k*19+sin(t/90+k)*6)%128),k%2==0 and 14 or 8)
+ end
+ local c=chars[who]
+ rectfill(40,4,87,52,0)
+ draw_portrait(who,44,8)
+ rectfill(2,58,125,100,0)
+ rect(2,58,125,100,c.col)
+ pcen(c.nm.." receives",62,c.col)
+ pcen(gifts[gift_idx].nm,70,7)
+ local pts=gift_pts[who][gift_idx]
+ local reaction
+ if pts>=3 then reaction="they absolutely light up!"
+ elseif pts==2 then reaction="they smile warmly."
+ elseif pts==1 then reaction="they nod politely."
+ elseif pts==0 then reaction="they shrug a little."
+ else reaction="they frown at it."
+ end
+ pcen(reaction,82,7)
+ local sign=pts>=0 and "+" or ""
+ pcen("(gift bonus: "..sign..pts..")",92,pts>=2 and 11 or (pts<0 and 8 or 6))
+ if (t\30)%2==0 then
+  pcen("z: begin date",116,7)
+ end
 end
 
 function draw_portrait(i,x,y)
@@ -498,11 +623,13 @@ function draw_play()
  print(c.sub,48,16,6)
  print("heart",48,26,8)
  rect(48,33,118,39,7)
- local pct=mid(0,score,10)/10
+ local pct=mid(0,score,13)/13
  if pct>0 then
   rectfill(49,34,49+pct*68,38,(flash>0 and (t%2==0)) and 14 or 8)
  end
  print("scene "..sc.."/5",90,46,5)
+ -- gift indicator
+ draw_gift_icon(gift_idx,124,46)
  rectfill(2,52,125,80,0)
  rect(2,52,125,80,c.col)
  local s=scenes[who][sc]
@@ -531,11 +658,11 @@ function draw_ending()
  rectfill(40,4,87,52,0)
  draw_portrait(who,44,8)
  local et,etxt
- if score<=3 then
+ if score<=4 then
   et="just friends?" etxt=endings[who].b
- elseif score<=6 then
+ elseif score<=7 then
   et="warm friendship" etxt=endings[who].o
- elseif score<=8 then
+ elseif score<=10 then
   et="something special" etxt=endings[who].g
  else
   et="true love" etxt=endings[who].t
@@ -544,7 +671,7 @@ function draw_ending()
  rectfill(2,66,125,108,0)
  rect(2,66,125,108,c.col)
  pwrap(etxt,5,69,7,30)
- print("score: "..score.."/10",4,114,5)
+ print("score: "..score.."/13",4,114,5)
  if (t\30)%2==0 then
   pcen("z: play again",120,7)
  end
