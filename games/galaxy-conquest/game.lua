@@ -3,8 +3,9 @@
 -- desc:   Idle galactic conquest. Click systems, dispatch admirals, salvage wrecks.
 -- script: lua
 
--- M1 shell: galaxy map plus zoomable system view.
--- Combat, economy, admirals, research, save/load all land in later milestones.
+-- M1: galaxy map + system view shell.
+-- M2: combat sim. Fighters, bullets, planet turret, wrecks, particles.
+-- Later milestones add economy, salvage, admirals, research, empires, save/load.
 
 local SW, SH = 240, 136
 local TOPBAR_H, BOTBAR_H = 10, 10
@@ -19,6 +20,12 @@ local EMP_NAME  = {[0]="neutral", [1]="you", [2]="pirates",
                    [3]="hegemony", [4]="star kingdom", [5]="ai hivemind"}
 local EMP_PREFIX = {[1]="sol", [2]="pi", [3]="he", [4]="sk", [5]="hi"}
 
+-- combat constants
+local FIGHTER = {hp = 4, speed = 1.0, fire_cd = 26, range = 44, dmg = 1, r = 2, color = 11}
+local TURRET  = {hp = 14,             fire_cd = 38, range = 64, dmg = 2, r = 3, color = 2}
+local BULLET_SPEED = 2.6
+local DOCK_X, DOCK_Y = 14, MAP_CY
+
 local view = "galaxy"
 local mx, my, ml, mm, mr = 0, 0, false, false, false
 local ml_prev, mr_prev = false, false
@@ -28,17 +35,34 @@ local money, rp = 50, 0
 local seed = 1
 local frame = 0
 
+-- per-system runtime sim (only valid while in system view)
+local ships = {}
+local bullets = {}
+local particles = {}
+
 local TAB_GX0, TAB_GX1 = 80, 130
 local TAB_SX0, TAB_SX1 = 132, 182
+local SPAWN_BX0, SPAWN_BY0 = 4, MAP_Y0 + 4
+local SPAWN_BW, SPAWN_BH = 56, 11
 
 local function d2(x1, y1, x2, y2)
   local dx, dy = x1 - x2, y1 - y2
   return dx * dx + dy * dy
 end
 
+local function dist(x1, y1, x2, y2)
+  return math.sqrt(d2(x1, y1, x2, y2))
+end
+
 local function in_rect(px, py, x0, y0, x1, y1)
   return px >= x0 and px < x1 and py >= y0 and py < y1
 end
+
+local function in_box(px, py, x, y, w, h)
+  return px >= x and px < x + w and py >= y and py < y + h
+end
+
+-- ---- galaxy generation ----
 
 local function gen_galaxy()
   math.randomseed(seed)
@@ -66,11 +90,12 @@ local function gen_galaxy()
         capital = false,
         tier = math.random(1, 3),
         name = "",
+        wrecks = {},
+        turret_hp = nil,
       })
     end
   end
 
-  -- player home is the star closest to galactic center
   local best, bd = 1, 1e9
   for i, s in ipairs(stars) do
     local d = d2(s.x, s.y, MAP_CX, MAP_CY)
@@ -82,7 +107,6 @@ local function gen_galaxy()
   stars[best].name = "sol"
   sel_idx = best
 
-  -- one capital per empire, picked as the farthest star from galactic center
   for emp = 2, 5 do
     local cap, cd = nil, -1
     for i, s in ipairs(stars) do
@@ -101,8 +125,73 @@ local function gen_galaxy()
     if s.name == "" then
       s.name = string.format("%s%02d", EMP_PREFIX[s.empire] or "n", i)
     end
+    if s.owner ~= 1 then
+      local mult = s.capital and 2.5 or (s.tier * 0.7 + 0.6)
+      s.turret_hp = math.floor(TURRET.hp * mult)
+      s.turret_max = s.turret_hp
+    end
   end
 end
+
+-- ---- combat helpers ----
+
+local function add_particle(x, y, count, color)
+  for i = 1, count do
+    local a = math.random() * 6.2832
+    local sp = 0.4 + math.random() * 1.4
+    table.insert(particles, {
+      x = x, y = y,
+      vx = math.cos(a) * sp, vy = math.sin(a) * sp,
+      life = 10 + math.random(0, 10),
+      color = color,
+    })
+  end
+end
+
+local function fire_bullet(x, y, tx, ty, team, dmg)
+  local dx, dy = tx - x, ty - y
+  local d = math.sqrt(dx * dx + dy * dy)
+  if d < 0.1 then d = 0.1 end
+  table.insert(bullets, {
+    x = x, y = y,
+    vx = dx / d * BULLET_SPEED, vy = dy / d * BULLET_SPEED,
+    team = team, dmg = dmg, life = 50,
+  })
+end
+
+local function spawn_fighter()
+  table.insert(ships, {
+    x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
+    vx = 0, vy = 0,
+    hp = FIGHTER.hp, max_hp = FIGHTER.hp,
+    team = 1, kind = "fighter",
+    fire_cd = math.random(0, 20),
+    orbit_dir = math.random() < 0.5 and 1 or -1,
+  })
+end
+
+local function planet_radius(s)
+  return 8 + s.tier * 2
+end
+
+-- ---- view switching ----
+
+local function enter_system()
+  ships, bullets, particles = {}, {}, {}
+end
+
+local function leave_system()
+  ships, bullets, particles = {}, {}, {}
+end
+
+local function set_view(v)
+  if v == view then return end
+  if view == "system" then leave_system() end
+  view = v
+  if view == "system" then enter_system() end
+end
+
+-- ---- input ----
 
 local function update_mouse()
   ml_prev, mr_prev = ml, mr
@@ -123,8 +212,8 @@ end
 
 local function update_topbar()
   if mclicked() then
-    if in_rect(mx, my, TAB_GX0, 0, TAB_GX1, TOPBAR_H) then view = "galaxy" end
-    if in_rect(mx, my, TAB_SX0, 0, TAB_SX1, TOPBAR_H) then view = "system" end
+    if in_rect(mx, my, TAB_GX0, 0, TAB_GX1, TOPBAR_H) then set_view("galaxy") end
+    if in_rect(mx, my, TAB_SX0, 0, TAB_SX1, TOPBAR_H) then set_view("system") end
   end
 end
 
@@ -132,13 +221,142 @@ local function update_galaxy()
   hov_idx = pick_star_at(mx, my)
   if hov_idx and my >= MAP_Y0 and my < MAP_Y1 then
     if mclicked() then sel_idx = hov_idx end
-    if mrclicked() then sel_idx = hov_idx; view = "system" end
+    if mrclicked() then
+      sel_idx = hov_idx
+      set_view("system")
+    end
+  end
+end
+
+-- ---- combat sim ----
+
+local function update_player_ships()
+  local s = stars[sel_idx]
+  if not s then return end
+  local px, py = MAP_CX, MAP_CY
+  local pr = planet_radius(s)
+  local enemy = s.owner ~= 1 and (s.turret_hp or 0) > 0
+  local i = 1
+  while i <= #ships do
+    local sh = ships[i]
+    local dx, dy = px - sh.x, py - sh.y
+    local d = math.sqrt(dx * dx + dy * dy)
+    if d < 0.1 then d = 0.1 end
+    local approach = pr + 22
+    if d > approach then
+      sh.vx = dx / d * FIGHTER.speed
+      sh.vy = dy / d * FIGHTER.speed
+    else
+      sh.vx = (-dy / d) * FIGHTER.speed * sh.orbit_dir
+      sh.vy = ( dx / d) * FIGHTER.speed * sh.orbit_dir
+    end
+    sh.x = sh.x + sh.vx
+    sh.y = sh.y + sh.vy
+    if sh.x < 2 then sh.x = 2 end
+    if sh.x > SW - 2 then sh.x = SW - 2 end
+    if sh.y < MAP_Y0 + 2 then sh.y = MAP_Y0 + 2 end
+    if sh.y > MAP_Y1 - 2 then sh.y = MAP_Y1 - 2 end
+
+    sh.fire_cd = sh.fire_cd - 1
+    if enemy and sh.fire_cd <= 0 and d < FIGHTER.range then
+      fire_bullet(sh.x, sh.y, px, py, 1, FIGHTER.dmg)
+      sh.fire_cd = FIGHTER.fire_cd
+    end
+
+    if sh.hp <= 0 then
+      add_particle(sh.x, sh.y, 10, 8)
+      add_particle(sh.x, sh.y, 4, 9)
+      table.insert(s.wrecks, {x = sh.x, y = sh.y})
+      table.remove(ships, i)
+    else
+      i = i + 1
+    end
+  end
+end
+
+local function update_turret()
+  local s = stars[sel_idx]
+  if not s or s.owner == 1 or not s.turret_hp or s.turret_hp <= 0 then return end
+  s.turret_cd = (s.turret_cd or 0) - 1
+  if s.turret_cd > 0 then return end
+  local best, bd = nil, 1e9
+  for _, sh in ipairs(ships) do
+    if sh.team == 1 then
+      local d = d2(MAP_CX, MAP_CY, sh.x, sh.y)
+      if d < bd then best, bd = sh, d end
+    end
+  end
+  if best and math.sqrt(bd) <= TURRET.range then
+    fire_bullet(MAP_CX, MAP_CY, best.x, best.y, 2, TURRET.dmg)
+    s.turret_cd = TURRET.fire_cd
+  end
+end
+
+local function update_bullets()
+  local s = stars[sel_idx]
+  local pr2 = s and (planet_radius(s) * planet_radius(s)) or 0
+  local i = 1
+  while i <= #bullets do
+    local b = bullets[i]
+    b.x = b.x + b.vx
+    b.y = b.y + b.vy
+    b.life = b.life - 1
+    local hit = false
+    if b.team == 1 then
+      if s and s.owner ~= 1 and s.turret_hp and s.turret_hp > 0
+         and d2(b.x, b.y, MAP_CX, MAP_CY) <= pr2 then
+        s.turret_hp = s.turret_hp - b.dmg
+        add_particle(b.x, b.y, 4, 9)
+        hit = true
+      end
+    else
+      for _, sh in ipairs(ships) do
+        if sh.team == 1 and d2(b.x, b.y, sh.x, sh.y) <= 9 then
+          sh.hp = sh.hp - b.dmg
+          add_particle(b.x, b.y, 3, 9)
+          hit = true
+          break
+        end
+      end
+    end
+    if hit or b.life <= 0
+       or b.x < 0 or b.x > SW
+       or b.y < MAP_Y0 or b.y > MAP_Y1 then
+      table.remove(bullets, i)
+    else
+      i = i + 1
+    end
+  end
+end
+
+local function update_particles()
+  local i = 1
+  while i <= #particles do
+    local p = particles[i]
+    p.x = p.x + p.vx
+    p.y = p.y + p.vy
+    p.vx = p.vx * 0.9
+    p.vy = p.vy * 0.9
+    p.life = p.life - 1
+    if p.life <= 0 then
+      table.remove(particles, i)
+    else
+      i = i + 1
+    end
   end
 end
 
 local function update_system()
-  -- placeholder: combat sim, defenses, ships land in M2
+  if mclicked() and in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH) then
+    spawn_fighter()
+  end
+  update_player_ships()
+  update_turret()
+  update_bullets()
+  update_particles()
 end
+
+-- ---- drawing ----
 
 local function draw_topbar()
   rect(0, 0, SW, TOPBAR_H, 0)
@@ -155,7 +373,7 @@ local function draw_botbar()
   rect(0, SH - BOTBAR_H, SW, BOTBAR_H, 0)
   local s = stars[sel_idx]
   if s then
-    local cap = s.capital and " (capital)" or ""
+    local cap = s.capital and " (cap)" or ""
     print(string.format("%s  t%d  %s%s",
             s.name, s.tier, EMP_NAME[s.owner], cap),
           2, SH - BOTBAR_H + 3, EMP_COLOR[s.owner], false, 1, true)
@@ -163,7 +381,8 @@ local function draw_botbar()
   if view == "galaxy" then
     print("rclick:enter", SW - 56, SH - BOTBAR_H + 3, 14, false, 1, true)
   else
-    print("tab back via top bar", SW - 88, SH - BOTBAR_H + 3, 14, false, 1, true)
+    print(string.format("ships:%d wrecks:%d", #ships, s and #s.wrecks or 0),
+          SW - 86, SH - BOTBAR_H + 3, 14, false, 1, true)
   end
 end
 
@@ -174,7 +393,6 @@ local function draw_galaxy_bg()
     local y = MAP_Y0 + (i * 19 + 7) % (MAP_Y1 - MAP_Y0)
     pix(x, y, 13)
   end
-  -- empire region dividers
   line(MAP_CX, MAP_Y0, MAP_CX, MAP_Y1 - 1, 13)
   line(0, MAP_CY, SW - 1, MAP_CY, 13)
 end
@@ -198,6 +416,47 @@ local function draw_galaxy()
   end
 end
 
+local function draw_ship(sh)
+  local hp_frac = sh.hp / sh.max_hp
+  local body = FIGHTER.color
+  if hp_frac < 0.4 then body = 8 end
+  pix(sh.x, sh.y, body)
+  pix(sh.x - 1, sh.y, body)
+  pix(sh.x + 1, sh.y, body)
+  pix(sh.x, sh.y - 1, body)
+  pix(sh.x, sh.y + 1, body)
+end
+
+local function draw_bullets()
+  for _, b in ipairs(bullets) do
+    local c = b.team == 1 and 10 or 9
+    pix(b.x, b.y, c)
+    pix(b.x - b.vx * 0.5, b.y - b.vy * 0.5, c == 10 and 9 or 8)
+  end
+end
+
+local function draw_particles()
+  for _, p in ipairs(particles) do
+    pix(p.x, p.y, p.color)
+  end
+end
+
+local function draw_wrecks(s)
+  for _, w in ipairs(s.wrecks) do
+    pix(w.x, w.y, 14)
+    pix(w.x + 1, w.y, 5)
+    pix(w.x, w.y + 1, 5)
+  end
+end
+
+local function draw_spawn_button()
+  local hot = in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH)
+  local edge = hot and 11 or 14
+  rect(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, 1)
+  rectb(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, edge)
+  print("spawn fighter", SPAWN_BX0 + 4, SPAWN_BY0 + 3, edge, false, 1, true)
+end
+
 local function draw_system()
   cls(1)
   local sid = sel_idx or 1
@@ -209,18 +468,47 @@ local function draw_system()
   local s = stars[sel_idx]
   if not s then return end
   local cx, cy = MAP_CX, MAP_CY
-  local pr = 10 + s.tier * 3
+  local pr = planet_radius(s)
   circ(cx, cy, pr, EMP_COLOR[s.owner])
   circb(cx, cy, pr, 0)
-  for k = 1, s.tier do
-    circb(cx, cy, pr + 4 + k * 4, 5)
+  if s.owner ~= 1 and s.turret_hp and s.turret_hp > 0 then
+    pix(cx, cy, 2)
+    pix(cx + 1, cy, 2)
+    pix(cx - 1, cy, 2)
+    pix(cx, cy + 1, 2)
+    pix(cx, cy - 1, 2)
   end
+
+  draw_wrecks(s)
+  draw_bullets()
+  for _, sh in ipairs(ships) do draw_ship(sh) end
+  draw_particles()
+
+  -- dock at left edge
+  rect(DOCK_X - 3, DOCK_Y - 4, 6, 8, 13)
+  rectb(DOCK_X - 3, DOCK_Y - 4, 6, 8, 6)
+  pix(DOCK_X, DOCK_Y, 6)
+
   print(s.name, cx - #s.name * 2, cy - pr - 9,
         EMP_COLOR[s.owner], false, 1, true)
   print(EMP_NAME[s.owner], cx - #EMP_NAME[s.owner] * 2, cy + pr + 4,
         EMP_COLOR[s.owner], false, 1, true)
   if s.capital then
     print("capital world", cx - 26, cy + pr + 12, 9, false, 1, true)
+  end
+
+  draw_spawn_button()
+
+  if s.owner ~= 1 and s.turret_max then
+    local tw = 40
+    local tx = SW - tw - 4
+    local ty = MAP_Y0 + 4
+    rect(tx, ty, tw, 7, 1)
+    local frac = s.turret_hp / s.turret_max
+    if frac < 0 then frac = 0 end
+    rect(tx + 1, ty + 1, math.floor((tw - 2) * frac), 5, 2)
+    rectb(tx, ty, tw, 7, 14)
+    print("turret", tx + 4, ty + 1, 14, false, 1, true)
   end
 end
 
