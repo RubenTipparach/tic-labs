@@ -25,12 +25,14 @@ local EMP_PREFIX = {[1]="sol", [2]="pi", [3]="he", [4]="sk", [5]="hi"}
 -- combat constants
 local FIGHTER  = {hp = 4, speed = 1.0, fire_cd = 26, range = 44, dmg = 1, color = 11}
 local DEFENDER = {hp = 3, speed = 0.9, fire_cd = 32, range = 40, dmg = 1, color = 2}
+local SALVAGE  = {hp = 3, speed = 0.8, color = 10, value = 6, rp = 1}
 local TURRET   = {fire_cd = 38, range = 64, dmg = 2}
 local BULLET_SPEED = 2.6
 local DOCK_X, DOCK_Y = 14, MAP_CY
 
 -- economy
 local FIGHTER_COST = 10
+local SALVAGE_COST = 8
 local INCOME_PERIOD = 60
 local STARTING_MONEY = 100
 
@@ -58,6 +60,8 @@ local TAB_GX0, TAB_GX1 = 80, 130
 local TAB_SX0, TAB_SX1 = 132, 182
 local SPAWN_BX0, SPAWN_BY0 = 4, MAP_Y0 + 4
 local SPAWN_BW, SPAWN_BH = 56, 11
+local SALV_BX0,  SALV_BY0  = 4, MAP_Y0 + 17
+local SALV_BW,   SALV_BH   = 56, 11
 
 local function d2(x1, y1, x2, y2)
   local dx, dy = x1 - x2, y1 - y2
@@ -239,6 +243,17 @@ local function spawn_fighter(s)
   })
 end
 
+local function spawn_salvage(s)
+  table.insert(s.ships, {
+    x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
+    vx = 0, vy = 0,
+    hp = SALVAGE.hp, max_hp = SALVAGE.hp,
+    team = 1, kind = "salvage",
+    fire_cd = 0,
+    orbit_dir = math.random() < 0.5 and 1 or -1,
+  })
+end
+
 local function spawn_defender(s)
   local a = math.random() * 6.2832
   local pr = planet_radius(s)
@@ -334,26 +349,55 @@ local function tick_player_ships(s, viewed)
   local i = 1
   while i <= #s.ships do
     local sh = s.ships[i]
-    local dx, dy = px - sh.x, py - sh.y
-    local d = math.sqrt(dx * dx + dy * dy)
-    if d < 0.1 then d = 0.1 end
-    local approach = pr + 22
-    if d > approach then
-      sh.vx = dx / d * FIGHTER.speed
-      sh.vy = dy / d * FIGHTER.speed
+    if sh.kind == "salvage" then
+      local target_idx, td = nil, 1e9
+      for wi, w in ipairs(s.wrecks) do
+        local dd = d2(sh.x, sh.y, w.x, w.y)
+        if dd < td then target_idx, td = wi, dd end
+      end
+      local tx, ty
+      if target_idx then
+        local w = s.wrecks[target_idx]
+        tx, ty = w.x, w.y
+      else
+        tx, ty = DOCK_X, DOCK_Y
+      end
+      local dx, dy = tx - sh.x, ty - sh.y
+      local dlen = math.sqrt(dx * dx + dy * dy)
+      if dlen > 1 then
+        if dlen < 0.1 then dlen = 0.1 end
+        sh.vx = dx / dlen * SALVAGE.speed
+        sh.vy = dy / dlen * SALVAGE.speed
+        sh.x = sh.x + sh.vx
+        sh.y = sh.y + sh.vy
+      end
+      if target_idx and dlen <= 2 then
+        if viewed then add_particle(sh.x, sh.y, 6, 10) end
+        table.remove(s.wrecks, target_idx)
+        money = money + SALVAGE.value
+        rp = rp + SALVAGE.rp
+      end
     else
-      sh.vx = (-dy / d) * FIGHTER.speed * sh.orbit_dir
-      sh.vy = ( dx / d) * FIGHTER.speed * sh.orbit_dir
+      local dx, dy = px - sh.x, py - sh.y
+      local d = math.sqrt(dx * dx + dy * dy)
+      if d < 0.1 then d = 0.1 end
+      local approach = pr + 22
+      if d > approach then
+        sh.vx = dx / d * FIGHTER.speed
+        sh.vy = dy / d * FIGHTER.speed
+      else
+        sh.vx = (-dy / d) * FIGHTER.speed * sh.orbit_dir
+        sh.vy = ( dx / d) * FIGHTER.speed * sh.orbit_dir
+      end
+      sh.x = sh.x + sh.vx
+      sh.y = sh.y + sh.vy
+      sh.fire_cd = sh.fire_cd - 1
+      if enemy and sh.fire_cd <= 0 and d < FIGHTER.range then
+        fire_bullet(s, sh.x, sh.y, px, py, 1, FIGHTER.dmg)
+        sh.fire_cd = FIGHTER.fire_cd
+      end
     end
-    sh.x = sh.x + sh.vx
-    sh.y = sh.y + sh.vy
     clamp_in_play(sh)
-
-    sh.fire_cd = sh.fire_cd - 1
-    if enemy and sh.fire_cd <= 0 and d < FIGHTER.range then
-      fire_bullet(s, sh.x, sh.y, px, py, 1, FIGHTER.dmg)
-      sh.fire_cd = FIGHTER.fire_cd
-    end
 
     if sh.hp <= 0 then
       if viewed then
@@ -580,12 +624,17 @@ local function tick_world()
 end
 
 local function update_system()
-  if mclicked() and in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH) then
-    if money >= FIGHTER_COST then
-      local s = stars[sel_idx]
-      if s then
+  if mclicked() then
+    local s = stars[sel_idx]
+    if s and in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH) then
+      if money >= FIGHTER_COST then
         spawn_fighter(s)
         money = money - FIGHTER_COST
+      end
+    elseif s and in_box(mx, my, SALV_BX0, SALV_BY0, SALV_BW, SALV_BH) then
+      if money >= SALVAGE_COST then
+        spawn_salvage(s)
+        money = money - SALVAGE_COST
       end
     end
   end
@@ -725,17 +774,21 @@ local function draw_turrets(s)
   end
 end
 
-local function draw_spawn_button()
-  local can_afford = money >= FIGHTER_COST
-  local hot = in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH)
+local function draw_button(x, y, w, h, label, cost)
+  local can_afford = money >= cost
+  local hot = in_box(mx, my, x, y, w, h)
   local edge
   if not can_afford then edge = 8
   elseif hot then edge = 11
   else edge = 14 end
-  rect(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, 1)
-  rectb(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, edge)
-  print(string.format("fighter $%d", FIGHTER_COST),
-        SPAWN_BX0 + 4, SPAWN_BY0 + 3, edge, false, 1, true)
+  rect(x, y, w, h, 1)
+  rectb(x, y, w, h, edge)
+  print(string.format("%s $%d", label, cost), x + 4, y + 3, edge, false, 1, true)
+end
+
+local function draw_spawn_buttons()
+  draw_button(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, "fighter", FIGHTER_COST)
+  draw_button(SALV_BX0,  SALV_BY0,  SALV_BW,  SALV_BH,  "salvage", SALVAGE_COST)
 end
 
 local function draw_planet_hp(s)
@@ -770,7 +823,10 @@ local function draw_system()
   draw_wrecks(s)
   draw_bullets(s)
   for _, df in ipairs(s.defenders) do draw_ship(df, DEFENDER.color) end
-  for _, sh in ipairs(s.ships) do draw_ship(sh, FIGHTER.color) end
+  for _, sh in ipairs(s.ships) do
+    local c = sh.kind == "salvage" and SALVAGE.color or FIGHTER.color
+    draw_ship(sh, c)
+  end
   draw_particles()
 
   rect(DOCK_X - 3, DOCK_Y - 4, 6, 8, 13)
@@ -785,7 +841,7 @@ local function draw_system()
     print("capital world", cx - 26, cy + pr + 12, 9, false, 1, true)
   end
 
-  draw_spawn_button()
+  draw_spawn_buttons()
   draw_planet_hp(s)
 
   if capture_flash > 0 and capture_msg ~= "" then
