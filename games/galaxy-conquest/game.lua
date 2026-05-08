@@ -46,6 +46,31 @@ local TRAITS = {"Gunner", "Veteran", "Logistician", "Salvager"}
 local NAMES = {"kira", "reyes", "vega", "okwu", "shen",
                "amara", "tariq", "ito",  "vance", "lior"}
 
+local NODES = {
+  o = {
+    {name = "hard hulls",   cost = 8,  effect = "+1 fighter hp"},
+    {name = "upgrade guns", cost = 15, effect = "+1 fighter dmg"},
+    {name = "flag battery", cost = 25, effect = "+1 flag dmg"},
+  },
+  d = {
+    {name = "thick steel",  cost = 10, effect = "+2 fighter hp"},
+    {name = "salv plating", cost = 10, effect = "+2 salv hp"},
+    {name = "flag plating", cost = 25, effect = "+30 flag hp"},
+  },
+  e = {
+    {name = "trade routes", cost = 15, effect = "+50% income"},
+    {name = "cheap yards",  cost = 12, effect = "-2 fighter $"},
+    {name = "salv proto",   cost = 20, effect = "+50% scoop"},
+  },
+  l = {
+    {name = "officer corp", cost = 20, effect = "+1 adm slot"},
+    {name = "comms net",    cost = 15, effect = "fast dispatch"},
+    {name = "navl academy", cost = 30, effect = "+1 adm slot"},
+  },
+}
+local COL_KEYS = {"o", "d", "e", "l"}
+local COL_TITLES = {"offense", "defense", "economy", "logist"}
+
 -- defense baselines, scaled by per-star difficulty
 local TURRET_HP_BASE      = 8
 local PLANET_HP_BASE      = 18
@@ -71,31 +96,39 @@ local sel_admiral = 1
 local officer_xp = 0
 local fleet_mode = "panel"
 local roster = nil
+local research = {o = 0, d = 0, e = 0, l = 0}
 
-local TAB_GX0, TAB_GX1 = 80, 130
-local TAB_SX0, TAB_SX1 = 132, 182
-local TAB_FX0, TAB_FX1 = 184, 234
-local SPAWN_BX0, SPAWN_BY0 = 4, MAP_Y0 + 4
-local SPAWN_BW, SPAWN_BH = 56, 11
-local SALV_BX0,  SALV_BY0  = 4, MAP_Y0 + 17
-local SALV_BW,   SALV_BH   = 56, 11
+local R = {
+  -- top bar tabs (x, y, w, h)
+  tab_g = {80,  0, 38, 10},
+  tab_s = {120, 0, 38, 10},
+  tab_f = {160, 0, 38, 10},
+  tab_r = {200, 0, 38, 10},
+  -- system view spawn buttons
+  spawn = {4, MAP_Y0 + 4,  56, 11},
+  salv  = {4, MAP_Y0 + 17, 56, 11},
+  -- fleet panel buttons
+  f_set   = {110, 46, 60,  10},
+  f_dep   = {4,   58, 152, 10},
+  f_bf    = {4,   72, 100, 11},
+  f_bs    = {110, 72, 100, 11},
+  f_rec   = {4,   88, 152, 11},
+  f_hire  = {30,  56, 180, 14},
+  f_prev  = {2,   12, 8,   10},
+  f_next  = {154, 12, 8,   10},
+  f_fire  = {196, 12, 40,  10},
+  f_promo = {162, 88, 74,  11},
+  -- promotion roster
+  r_card1 = {4,   22, 75, 70},
+  r_card2 = {82,  22, 75, 70},
+  r_card3 = {160, 22, 75, 70},
+  r_skip  = {90, 100, 60, 12},
+}
 
--- fleet view button rects
-local F_SET_X, F_SET_Y, F_SET_W, F_SET_H = 110, 46, 60, 10
-local F_DEP_X, F_DEP_Y, F_DEP_W, F_DEP_H = 4,   58, 152, 10
-local F_BF_X,  F_BF_Y,  F_BF_W,  F_BF_H  = 4,   72, 100, 11
-local F_BS_X,  F_BS_Y,  F_BS_W,  F_BS_H  = 110, 72, 100, 11
-local F_REC_X, F_REC_Y, F_REC_W, F_REC_H = 4,   88, 152, 11
-local F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H = 30, 56, 180, 14
-local F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H = 2,   12, 8,  10
-local F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H = 154, 12, 8,  10
-local F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H = 196, 12, 40, 10
-local F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H = 162, 88, 74, 11
-local R_C_W, R_C_H, R_C_Y = 75, 70, 22
-local R_C1_X = 4
-local R_C2_X = 82
-local R_C3_X = 160
-local R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H = 90, 100, 60, 12
+-- research view layout
+local RES_COL_X = {4, 64, 124, 184}
+local RES_NODE_W, RES_NODE_H = 56, 28
+local RES_NODE_Y0, RES_ROW_DY = 30, 30
 
 local function d2(x1, y1, x2, y2)
   local dx, dy = x1 - x2, y1 - y2
@@ -112,6 +145,11 @@ end
 
 local function in_box(px, py, x, y, w, h)
   return px >= x and px < x + w and py >= y and py < y + h
+end
+
+local function in_b(b)
+  return mx >= b[1] and mx < b[1] + b[3]
+     and my >= b[2] and my < b[2] + b[4]
 end
 
 local function planet_radius(s)
@@ -267,23 +305,25 @@ local function fire_bullet(s, x, y, tx, ty, team, dmg)
 end
 
 local function spawn_fighter(s, a)
+  local hp = FIGHTER.hp + fighter_hp_bonus()
   table.insert(s.ships, {
     x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
     vx = 0, vy = 0,
-    hp = FIGHTER.hp, max_hp = FIGHTER.hp,
+    hp = hp, max_hp = hp,
     team = 1, kind = "fighter",
     fire_cd = math.random(0, 20),
     orbit_dir = math.random() < 0.5 and 1 or -1,
     admiral = a,
-    dmg_bonus = has_trait(a, "Gunner") and 1 or 0,
+    dmg_bonus = (has_trait(a, "Gunner") and 1 or 0),
   })
 end
 
 local function spawn_salvage(s, a)
+  local hp = SALVAGE.hp + salvage_hp_bonus()
   table.insert(s.ships, {
     x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
     vx = 0, vy = 0,
-    hp = SALVAGE.hp, max_hp = SALVAGE.hp,
+    hp = hp, max_hp = hp,
     team = 1, kind = "salvage",
     fire_cd = 0,
     orbit_dir = math.random() < 0.5 and 1 or -1,
@@ -334,6 +374,47 @@ local function has_trait(a, name)
     if t == name then return true end
   end
   return false
+end
+
+local function fighter_hp_bonus()
+  local b = 0
+  if research.o >= 1 then b = b + 1 end
+  if research.d >= 1 then b = b + 2 end
+  return b
+end
+local function fighter_dmg_bonus()
+  return research.o >= 2 and 1 or 0
+end
+local function flagship_dmg_bonus()
+  return research.o >= 3 and 1 or 0
+end
+local function salvage_hp_bonus()
+  return research.d >= 2 and 2 or 0
+end
+local function income_mult()
+  return research.e >= 1 and 1.5 or 1.0
+end
+local function fighter_cost_real()
+  return research.e >= 2 and (FIGHTER_COST - 2) or FIGHTER_COST
+end
+local function global_salvage_mult()
+  return research.e >= 3 and 1.5 or 1.0
+end
+local function admiral_slot_cap()
+  local s = MAX_ADMIRAL_SLOTS
+  if research.l >= 1 then s = s + 1 end
+  if research.l >= 3 then s = s + 1 end
+  return s
+end
+local function dispatch_speedup()
+  return research.l >= 2 and 4 or 0
+end
+local function dispatch_cd_for(a)
+  local cd = 24
+  if has_trait(a, "Logistician") then cd = cd - 8 end
+  cd = cd - dispatch_speedup()
+  if cd < 8 then cd = 8 end
+  return cd
 end
 
 local function roll_traits(n)
@@ -447,9 +528,41 @@ end
 
 local function update_topbar()
   if mclicked() then
-    if in_rect(mx, my, TAB_GX0, 0, TAB_GX1, TOPBAR_H) then set_view("galaxy") end
-    if in_rect(mx, my, TAB_SX0, 0, TAB_SX1, TOPBAR_H) then set_view("system") end
-    if in_rect(mx, my, TAB_FX0, 0, TAB_FX1, TOPBAR_H) then set_view("fleet") end
+    if in_b(R.tab_g) then set_view("galaxy") end
+    if in_b(R.tab_s) then set_view("system") end
+    if in_b(R.tab_f) then set_view("fleet") end
+    if in_b(R.tab_r) then set_view("research") end
+  end
+end
+
+local function on_research_purchased(col, tier)
+  if col == "d" and tier == 3 then
+    for _, a in ipairs(admirals) do
+      local was_full = a.flagship_hp == a.flagship_max
+      a.flagship_max = a.flagship_max + 30
+      if was_full then a.flagship_hp = a.flagship_max end
+    end
+  end
+end
+
+local function update_research()
+  if not mclicked() then return end
+  for ci, col in ipairs(COL_KEYS) do
+    for ti = 1, 3 do
+      local x = RES_COL_X[ci]
+      local y = RES_NODE_Y0 + (ti - 1) * RES_ROW_DY
+      if in_box(mx, my, x, y, RES_NODE_W, RES_NODE_H) then
+        local node = NODES[col][ti]
+        local owned = research[col] >= ti
+        local available = research[col] >= (ti - 1) and not owned
+        if available and rp >= node.cost then
+          rp = rp - node.cost
+          research[col] = ti
+          on_research_purchased(col, ti)
+        end
+        return
+      end
+    end
   end
 end
 
@@ -505,7 +618,8 @@ local function tick_player_ships(s, viewed)
       if target_idx and dlen <= 2 then
         if viewed then add_particle(sh.x, sh.y, 6, 10) end
         table.remove(s.wrecks, target_idx)
-        local mult = has_trait(sh.admiral, "Salvager") and 1.5 or 1.0
+        local mult = (has_trait(sh.admiral, "Salvager") and 1.5 or 1.0)
+                     * global_salvage_mult()
         money = money + math.floor(SALVAGE.value * mult)
         rp = rp + SALVAGE.rp
       end
@@ -526,8 +640,10 @@ local function tick_player_ships(s, viewed)
       sh.y = sh.y + sh.vy
       sh.fire_cd = sh.fire_cd - 1
       if enemy and sh.fire_cd <= 0 and d < stats.range then
+        local extra = sh.kind == "flagship"
+                      and flagship_dmg_bonus() or fighter_dmg_bonus()
         fire_bullet(s, sh.x, sh.y, px, py, 1,
-                    stats.dmg + (sh.dmg_bonus or 0))
+                    stats.dmg + (sh.dmg_bonus or 0) + extra)
         sh.fire_cd = stats.fire_cd
       end
     end
@@ -741,7 +857,7 @@ local function tick_money()
     money_tick = 0
     for _, s in ipairs(stars) do
       if s.owner == 1 then
-        money = money + 1 + s.tier
+        money = money + math.floor((1 + s.tier) * income_mult())
       end
     end
   end
@@ -757,11 +873,11 @@ local function tick_admirals()
           if a.fleet_fighter > 0 then
             a.fleet_fighter = a.fleet_fighter - 1
             spawn_fighter(s, a)
-            a.dispatch_cd = has_trait(a, "Logistician") and 16 or 24
+            a.dispatch_cd = dispatch_cd_for(a)
           elseif a.fleet_salvage > 0 then
             a.fleet_salvage = a.fleet_salvage - 1
             spawn_salvage(s, a)
-            a.dispatch_cd = has_trait(a, "Logistician") and 16 or 24
+            a.dispatch_cd = dispatch_cd_for(a)
           else
             a.dispatch_cd = 12
           end
@@ -803,12 +919,13 @@ local function update_system()
   if mclicked() then
     local s = stars[sel_idx]
     local a = admirals[sel_admiral]
-    if s and in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH) then
-      if money >= FIGHTER_COST then
+    if s and in_b(R.spawn) then
+      local c = fighter_cost_real()
+      if money >= c then
         spawn_fighter(s, a)
-        money = money - FIGHTER_COST
+        money = money - c
       end
-    elseif s and in_box(mx, my, SALV_BX0, SALV_BY0, SALV_BW, SALV_BH) then
+    elseif s and in_b(R.salv) then
       if money >= SALVAGE_COST then
         spawn_salvage(s, a)
         money = money - SALVAGE_COST
@@ -828,7 +945,7 @@ end
 
 local function pick_candidate(idx)
   if not roster or not roster[idx] then return end
-  if #admirals >= MAX_ADMIRAL_SLOTS then return end
+  if #admirals >= admiral_slot_cap() then return end
   if officer_xp < PROMOTION_THRESHOLD then return end
   local cand = roster[idx]
   table.insert(admirals, init_admiral(cand.name, cand.traits))
@@ -840,31 +957,31 @@ end
 local function update_fleet()
   if fleet_mode == "roster" then
     if not mclicked() then return end
-    if in_box(mx, my, R_C1_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(1)
-    elseif in_box(mx, my, R_C2_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(2)
-    elseif in_box(mx, my, R_C3_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(3)
-    elseif in_box(mx, my, R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H) then close_roster()
+    if in_b(R.r_card1) then pick_candidate(1)
+    elseif in_b(R.r_card2) then pick_candidate(2)
+    elseif in_b(R.r_card3) then pick_candidate(3)
+    elseif in_b(R.r_skip) then close_roster()
     end
     return
   end
   if not mclicked() then return end
-  if in_box(mx, my, F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H) then
+  if in_b(R.f_prev) then
     if #admirals > 0 then
       sel_admiral = sel_admiral - 1
       if sel_admiral < 1 then sel_admiral = #admirals end
     end
     return
-  elseif in_box(mx, my, F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H) then
+  elseif in_b(R.f_next) then
     if #admirals > 0 then
       sel_admiral = sel_admiral + 1
       if sel_admiral > #admirals then sel_admiral = 1 end
     end
     return
-  elseif in_box(mx, my, F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H) then
+  elseif in_b(R.f_fire) then
     if #admirals > 1 then fire_admiral(sel_admiral) end
     return
-  elseif in_box(mx, my, F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H) then
-    if officer_xp >= PROMOTION_THRESHOLD and #admirals < MAX_ADMIRAL_SLOTS then
+  elseif in_b(R.f_promo) then
+    if officer_xp >= PROMOTION_THRESHOLD and #admirals < admiral_slot_cap() then
       open_roster()
     end
     return
@@ -872,7 +989,7 @@ local function update_fleet()
   local a = admirals[sel_admiral]
   if not a then return end
   if not a.alive then
-    if in_box(mx, my, F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H) then
+    if in_b(R.f_hire) then
       if money >= HIRE_MONEY_COST and rp >= HIRE_RP_COST then
         money = money - HIRE_MONEY_COST
         rp = rp - HIRE_RP_COST
@@ -882,24 +999,25 @@ local function update_fleet()
     end
     return
   end
-  if in_box(mx, my, F_SET_X, F_SET_Y, F_SET_W, F_SET_H) then
+  if in_b(R.f_set) then
     if a.alive and sel_idx and stars[sel_idx] and stars[sel_idx].owner ~= 1 then
       a.target_idx = sel_idx
       a.dispatch_cd = 0
     end
-  elseif in_box(mx, my, F_DEP_X, F_DEP_Y, F_DEP_W, F_DEP_H) then
+  elseif in_b(R.f_dep) then
     a.deploy_flagship_toggle = not a.deploy_flagship_toggle
-  elseif in_box(mx, my, F_BF_X, F_BF_Y, F_BF_W, F_BF_H) then
-    if a.alive and money >= FIGHTER_COST then
-      money = money - FIGHTER_COST
+  elseif in_b(R.f_bf) then
+    local c = fighter_cost_real()
+    if a.alive and money >= c then
+      money = money - c
       a.fleet_fighter = a.fleet_fighter + 1
     end
-  elseif in_box(mx, my, F_BS_X, F_BS_Y, F_BS_W, F_BS_H) then
+  elseif in_b(R.f_bs) then
     if a.alive and money >= SALVAGE_COST then
       money = money - SALVAGE_COST
       a.fleet_salvage = a.fleet_salvage + 1
     end
-  elseif in_box(mx, my, F_REC_X, F_REC_Y, F_REC_W, F_REC_H) then
+  elseif in_b(R.f_rec) then
     if a.alive then admiral_recall(a) end
   end
 end
@@ -918,16 +1036,19 @@ end
 
 local function draw_topbar()
   rect(0, 0, SW, TOPBAR_H, 0)
-  print(string.format("$%d  rp:%d", money, rp), 2, 3, 9, false, 1, true)
-  local g_col = view == "galaxy" and 11 or 14
-  local s_col = view == "system" and 11 or 14
-  local f_col = view == "fleet"  and 11 or 14
-  rectb(TAB_GX0, 1, TAB_GX1 - TAB_GX0, TOPBAR_H - 2, g_col)
-  rectb(TAB_SX0, 1, TAB_SX1 - TAB_SX0, TOPBAR_H - 2, s_col)
-  rectb(TAB_FX0, 1, TAB_FX1 - TAB_FX0, TOPBAR_H - 2, f_col)
-  print("galaxy", TAB_GX0 + 14, 3, g_col, false, 1, true)
-  print("system", TAB_SX0 + 14, 3, s_col, false, 1, true)
-  print("fleet",  TAB_FX0 + 16, 3, f_col, false, 1, true)
+  print(string.format("$%d rp:%d", money, rp), 2, 3, 9, false, 1, true)
+  local g_col = view == "galaxy"   and 11 or 14
+  local s_col = view == "system"   and 11 or 14
+  local f_col = view == "fleet"    and 11 or 14
+  local r_col = view == "research" and 11 or 14
+  rectb(R.tab_g[1], 1, R.tab_g[3], TOPBAR_H - 2, g_col)
+  rectb(R.tab_s[1], 1, R.tab_s[3], TOPBAR_H - 2, s_col)
+  rectb(R.tab_f[1], 1, R.tab_f[3], TOPBAR_H - 2, f_col)
+  rectb(R.tab_r[1], 1, R.tab_r[3], TOPBAR_H - 2, r_col)
+  print("galaxy",   R.tab_g[1] + 7, 3, g_col, false, 1, true)
+  print("system",   R.tab_s[1] + 7, 3, s_col, false, 1, true)
+  print("fleet",    R.tab_f[1] + 9, 3, f_col, false, 1, true)
+  print("research", R.tab_r[1] + 3, 3, r_col, false, 1, true)
 end
 
 local function draw_botbar()
@@ -1063,8 +1184,8 @@ local function draw_button(x, y, w, h, label, cost)
 end
 
 local function draw_spawn_buttons()
-  draw_button(SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH, "fighter", FIGHTER_COST)
-  draw_button(SALV_BX0,  SALV_BY0,  SALV_BW,  SALV_BH,  "salvage", SALVAGE_COST)
+  draw_button(R.spawn[1], R.spawn[2], R.spawn[3], R.spawn[4], "fighter", FIGHTER_COST)
+  draw_button(R.salv[1], R.salv[2], R.salv[3], R.salv[4],  "salvage", SALVAGE_COST)
 end
 
 local function draw_planet_hp(s)
@@ -1160,27 +1281,27 @@ local function draw_roster()
   print(string.format("officer xp: %d  slots %d/%d",
           officer_xp, #admirals, MAX_ADMIRAL_SLOTS),
         4, 124, 14, false, 1, true)
-  local positions = {R_C1_X, R_C2_X, R_C3_X}
+  local positions = {R.r_card1[1], R.r_card2[1], R.r_card3[1]}
   for i = 1, 3 do
     local cx = positions[i]
     local cand = roster and roster[i]
-    local hot = in_box(mx, my, cx, R_C_Y, R_C_W, R_C_H)
+    local hot = in_box(mx, my, cx, R.r_card1[2], R.r_card1[3], R.r_card1[4])
     local edge = hot and 11 or 14
-    rect(cx, R_C_Y, R_C_W, R_C_H, 1)
-    rectb(cx, R_C_Y, R_C_W, R_C_H, edge)
+    rect(cx, R.r_card1[2], R.r_card1[3], R.r_card1[4], 1)
+    rectb(cx, R.r_card1[2], R.r_card1[3], R.r_card1[4], edge)
     if cand then
-      print(cand.name, cx + 4, R_C_Y + 4, 6, false, 1, true)
-      print("traits:", cx + 4, R_C_Y + 16, 14, false, 1, true)
+      print(cand.name, cx + 4, R.r_card1[2] + 4, 6, false, 1, true)
+      print("traits:", cx + 4, R.r_card1[2] + 16, 14, false, 1, true)
       for ti, t in ipairs(cand.traits) do
-        print("- " .. t, cx + 4, R_C_Y + 26 + (ti - 1) * 8,
+        print("- " .. t, cx + 4, R.r_card1[2] + 26 + (ti - 1) * 8,
               11, false, 1, true)
       end
-      print("[promote]", cx + 4, R_C_Y + R_C_H - 10,
+      print("[promote]", cx + 4, R.r_card1[2] + R.r_card1[4] - 10,
             edge, false, 1, true)
     end
   end
-  local sk_hot = in_box(mx, my, R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H)
-  draw_panel_button(R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H,
+  local sk_hot = in_b(R.r_skip)
+  draw_panel_button(R.r_skip[1], R.r_skip[2], R.r_skip[3], R.r_skip[4],
     "skip", sk_hot, true)
 end
 
@@ -1201,26 +1322,26 @@ local function draw_fleet()
 
   local hdr_col = a.alive and 6 or 8
   -- prev / next nav
-  draw_panel_button(F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H, "<",
-    in_box(mx, my, F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H), #admirals > 1)
-  draw_panel_button(F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H, ">",
-    in_box(mx, my, F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H), #admirals > 1)
+  draw_panel_button(R.f_prev[1], R.f_prev[2], R.f_prev[3], R.f_prev[4], "<",
+    in_b(R.f_prev), #admirals > 1)
+  draw_panel_button(R.f_next[1], R.f_next[2], R.f_next[3], R.f_next[4], ">",
+    in_b(R.f_next), #admirals > 1)
   print(string.format("adm %d/%d: %s", sel_admiral, #admirals, a.name),
         14, 14, hdr_col, false, 1, true)
   print(a.alive and "(active)" or "(lost)",
         100, 14, hdr_col, false, 1, true)
   -- fire button (disabled if last admiral)
-  draw_panel_button(F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H, "fire",
-    in_box(mx, my, F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H), #admirals > 1)
+  draw_panel_button(R.f_fire[1], R.f_fire[2], R.f_fire[3], R.f_fire[4], "fire",
+    in_b(R.f_fire), #admirals > 1)
 
   if not a.alive then
     print("flagship destroyed. admiral lost.",
           4, 36, 8, false, 1, true)
     local can = money >= HIRE_MONEY_COST and rp >= HIRE_RP_COST
-    draw_panel_button(F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H,
+    draw_panel_button(R.f_hire[1], R.f_hire[2], R.f_hire[3], R.f_hire[4],
       string.format("hire new admiral  $%d  rp:%d",
                     HIRE_MONEY_COST, HIRE_RP_COST),
-      in_box(mx, my, F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H), can)
+      in_b(R.f_hire), can)
     return
   end
 
@@ -1230,9 +1351,9 @@ local function draw_fleet()
   -- promotion button
   local promo_can = officer_xp >= PROMOTION_THRESHOLD
                     and #admirals < MAX_ADMIRAL_SLOTS
-  draw_panel_button(F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H,
+  draw_panel_button(R.f_promo[1], R.f_promo[2], R.f_promo[3], R.f_promo[4],
     string.format("xp %d/%d roster", officer_xp, PROMOTION_THRESHOLD),
-    in_box(mx, my, F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H), promo_can)
+    in_b(R.f_promo), promo_can)
 
   print("flagship", 4, 24, FLAGSHIP.color, false, 1, true)
   local fbw = 70
@@ -1261,26 +1382,64 @@ local function draw_fleet()
                   and stars[sel_idx].owner ~= 1
   local set_label = sel_idx and stars[sel_idx]
                     and ("set: " .. stars[sel_idx].name) or "set: ?"
-  draw_panel_button(F_SET_X, F_SET_Y, F_SET_W, F_SET_H, set_label,
-    in_box(mx, my, F_SET_X, F_SET_Y, F_SET_W, F_SET_H), can_set)
+  draw_panel_button(R.f_set[1], R.f_set[2], R.f_set[3], R.f_set[4], set_label,
+    in_b(R.f_set), can_set)
 
   local mark = a.deploy_flagship_toggle and "[x]" or "[ ]"
-  draw_panel_button(F_DEP_X, F_DEP_Y, F_DEP_W, F_DEP_H,
+  draw_panel_button(R.f_dep[1], R.f_dep[2], R.f_dep[3], R.f_dep[4],
     mark .. " deploy flagship with fleet",
-    in_box(mx, my, F_DEP_X, F_DEP_Y, F_DEP_W, F_DEP_H), a.alive)
+    in_b(R.f_dep), a.alive)
 
-  local can_bf = a.alive and money >= FIGHTER_COST
+  local fc = fighter_cost_real()
+  local can_bf = a.alive and money >= fc
   local can_bs = a.alive and money >= SALVAGE_COST
-  draw_panel_button(F_BF_X, F_BF_Y, F_BF_W, F_BF_H,
-    string.format("build fighter $%d", FIGHTER_COST),
-    in_box(mx, my, F_BF_X, F_BF_Y, F_BF_W, F_BF_H), can_bf)
-  draw_panel_button(F_BS_X, F_BS_Y, F_BS_W, F_BS_H,
+  draw_panel_button(R.f_bf[1], R.f_bf[2], R.f_bf[3], R.f_bf[4],
+    string.format("build fighter $%d", fc),
+    in_b(R.f_bf), can_bf)
+  draw_panel_button(R.f_bs[1], R.f_bs[2], R.f_bs[3], R.f_bs[4],
     string.format("build salvage $%d", SALVAGE_COST),
-    in_box(mx, my, F_BS_X, F_BS_Y, F_BS_W, F_BS_H), can_bs)
+    in_b(R.f_bs), can_bs)
 
-  draw_panel_button(F_REC_X, F_REC_Y, F_REC_W, F_REC_H,
+  draw_panel_button(R.f_rec[1], R.f_rec[2], R.f_rec[3], R.f_rec[4],
     "recall fleet to home",
-    in_box(mx, my, F_REC_X, F_REC_Y, F_REC_W, F_REC_H), a.alive)
+    in_b(R.f_rec), a.alive)
+end
+
+local function draw_research()
+  cls(0)
+  for i = 0, 60 do
+    local x = (i * 41 + 13) % SW
+    local y = MAP_Y0 + (i * 23 + 9) % (MAP_Y1 - MAP_Y0)
+    pix(x, y, 13)
+  end
+  print("research tree", 4, 12, 11, false, 1, true)
+  for ci = 1, 4 do
+    print(COL_TITLES[ci], RES_COL_X[ci], 22, 14, false, 1, true)
+  end
+  for ci, col in ipairs(COL_KEYS) do
+    for ti = 1, 3 do
+      local x = RES_COL_X[ci]
+      local y = RES_NODE_Y0 + (ti - 1) * RES_ROW_DY
+      local node = NODES[col][ti]
+      local owned = research[col] >= ti
+      local can_buy = research[col] >= (ti - 1) and not owned and rp >= node.cost
+      local hot = in_box(mx, my, x, y, RES_NODE_W, RES_NODE_H)
+      local edge
+      if owned then edge = 6
+      elseif can_buy and hot then edge = 11
+      elseif can_buy then edge = 9
+      else edge = 14 end
+      rect(x, y, RES_NODE_W, RES_NODE_H, 1)
+      rectb(x, y, RES_NODE_W, RES_NODE_H, edge)
+      print(node.name, x + 2, y + 2, edge, false, 1, true)
+      print(node.effect, x + 2, y + 10, edge, false, 1, true)
+      if owned then
+        print("owned", x + 2, y + 19, 6, false, 1, true)
+      else
+        print(string.format("%d rp", node.cost), x + 2, y + 19, edge, false, 1, true)
+      end
+    end
+  end
 end
 
 local function draw_cursor()
@@ -1302,11 +1461,13 @@ function TIC()
   update_topbar()
   if view == "galaxy" then update_galaxy()
   elseif view == "system" then update_system()
-  else update_fleet() end
+  elseif view == "fleet" then update_fleet()
+  else update_research() end
   tick_world()
   if view == "galaxy" then draw_galaxy()
   elseif view == "system" then draw_system()
-  else draw_fleet() end
+  elseif view == "fleet" then draw_fleet()
+  else draw_research() end
   draw_topbar()
   draw_botbar()
   draw_cursor()
