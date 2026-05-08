@@ -39,6 +39,10 @@ local STARTING_MONEY = 100
 local HIRE_MONEY_COST = 50
 local HIRE_RP_COST    = 10
 
+local MAX_ADMIRAL_SLOTS = 4
+local PROMOTION_THRESHOLD = 20
+local TRAITS = {"Gunner", "Veteran", "Logistician", "Salvager"}
+
 local NAMES = {"kira", "reyes", "vega", "okwu", "shen",
                "amara", "tariq", "ito",  "vance", "lior"}
 
@@ -64,6 +68,9 @@ local particles = {}
 
 local admirals = {}
 local sel_admiral = 1
+local officer_xp = 0
+local fleet_mode = "panel"
+local roster = nil
 
 local TAB_GX0, TAB_GX1 = 80, 130
 local TAB_SX0, TAB_SX1 = 132, 182
@@ -80,6 +87,15 @@ local F_BF_X,  F_BF_Y,  F_BF_W,  F_BF_H  = 4,   72, 100, 11
 local F_BS_X,  F_BS_Y,  F_BS_W,  F_BS_H  = 110, 72, 100, 11
 local F_REC_X, F_REC_Y, F_REC_W, F_REC_H = 4,   88, 152, 11
 local F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H = 30, 56, 180, 14
+local F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H = 2,   12, 8,  10
+local F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H = 154, 12, 8,  10
+local F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H = 196, 12, 40, 10
+local F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H = 162, 88, 74, 11
+local R_C_W, R_C_H, R_C_Y = 75, 70, 22
+local R_C1_X = 4
+local R_C2_X = 82
+local R_C3_X = 160
+local R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H = 90, 100, 60, 12
 
 local function d2(x1, y1, x2, y2)
   local dx, dy = x1 - x2, y1 - y2
@@ -259,6 +275,7 @@ local function spawn_fighter(s, a)
     fire_cd = math.random(0, 20),
     orbit_dir = math.random() < 0.5 and 1 or -1,
     admiral = a,
+    dmg_bonus = has_trait(a, "Gunner") and 1 or 0,
   })
 end
 
@@ -283,6 +300,7 @@ local function spawn_flagship(s, a)
     fire_cd = math.random(0, 12),
     orbit_dir = math.random() < 0.5 and 1 or -1,
     admiral = a,
+    dmg_bonus = has_trait(a, "Veteran") and 1 or 0,
   })
 end
 
@@ -310,17 +328,59 @@ local function admiral_recall(a)
   a.dispatch_cd = 0
 end
 
-local function init_admiral(name)
+local function has_trait(a, name)
+  if not a or not a.traits then return false end
+  for _, t in ipairs(a.traits) do
+    if t == name then return true end
+  end
+  return false
+end
+
+local function roll_traits(n)
+  local picked = {}
+  for i = 1, n do
+    local cand = TRAITS[math.random(1, #TRAITS)]
+    local dup = false
+    for _, p in ipairs(picked) do if p == cand then dup = true end end
+    if not dup then table.insert(picked, cand) end
+  end
+  return picked
+end
+
+local function init_admiral(name, traits)
+  traits = traits or {}
+  local fhp = FLAGSHIP.hp
+  for _, t in ipairs(traits) do
+    if t == "Veteran" then fhp = fhp + 20 end
+  end
   return {
     name = name,
+    traits = traits,
     fleet_fighter = 0, fleet_salvage = 0,
     target_idx = nil,
-    flagship_hp = FLAGSHIP.hp, flagship_max = FLAGSHIP.hp,
+    flagship_hp = fhp, flagship_max = fhp,
     flagship_deployed = false,
     deploy_flagship_toggle = false,
     alive = true,
     dispatch_cd = 0,
   }
+end
+
+local function roll_candidate()
+  return {
+    name = NAMES[math.random(1, #NAMES)],
+    traits = roll_traits(math.random(1, 2)),
+  }
+end
+
+local function open_roster()
+  roster = {roll_candidate(), roll_candidate(), roll_candidate()}
+  fleet_mode = "roster"
+end
+
+local function close_roster()
+  roster = nil
+  fleet_mode = "panel"
 end
 
 local function spawn_defender(s)
@@ -355,6 +415,7 @@ local function capture_planet(s)
   s.max_defenders = 0
   capture_flash = 60
   capture_msg = string.format("%s captured!", s.name)
+  officer_xp = officer_xp + 10
 end
 
 -- ---- view switching ----
@@ -444,7 +505,8 @@ local function tick_player_ships(s, viewed)
       if target_idx and dlen <= 2 then
         if viewed then add_particle(sh.x, sh.y, 6, 10) end
         table.remove(s.wrecks, target_idx)
-        money = money + SALVAGE.value
+        local mult = has_trait(sh.admiral, "Salvager") and 1.5 or 1.0
+        money = money + math.floor(SALVAGE.value * mult)
         rp = rp + SALVAGE.rp
       end
     else
@@ -464,7 +526,8 @@ local function tick_player_ships(s, viewed)
       sh.y = sh.y + sh.vy
       sh.fire_cd = sh.fire_cd - 1
       if enemy and sh.fire_cd <= 0 and d < stats.range then
-        fire_bullet(s, sh.x, sh.y, px, py, 1, stats.dmg)
+        fire_bullet(s, sh.x, sh.y, px, py, 1,
+                    stats.dmg + (sh.dmg_bonus or 0))
         sh.fire_cd = stats.fire_cd
       end
     end
@@ -543,6 +606,7 @@ local function tick_defenders(s, viewed)
       end
       table.insert(s.wrecks, {x = df.x, y = df.y})
       table.remove(s.defenders, i)
+      officer_xp = officer_xp + 1
     else
       i = i + 1
     end
@@ -615,6 +679,7 @@ local function tick_bullets(s, viewed)
                 t.hp = 0
                 t.rebuild_cd = s.turret_rebuild_cd
                 if viewed then add_particle(tx, ty, 8, 8) end
+                officer_xp = officer_xp + 2
               end
               hit = true
               break
@@ -692,11 +757,11 @@ local function tick_admirals()
           if a.fleet_fighter > 0 then
             a.fleet_fighter = a.fleet_fighter - 1
             spawn_fighter(s, a)
-            a.dispatch_cd = 24
+            a.dispatch_cd = has_trait(a, "Logistician") and 16 or 24
           elseif a.fleet_salvage > 0 then
             a.fleet_salvage = a.fleet_salvage - 1
             spawn_salvage(s, a)
-            a.dispatch_cd = 24
+            a.dispatch_cd = has_trait(a, "Logistician") and 16 or 24
           else
             a.dispatch_cd = 12
           end
@@ -752,8 +817,58 @@ local function update_system()
   end
 end
 
+local function fire_admiral(idx)
+  local a = admirals[idx]
+  if not a then return end
+  if a.alive then admiral_recall(a) end
+  table.remove(admirals, idx)
+  if sel_admiral > #admirals then sel_admiral = #admirals end
+  if sel_admiral < 1 then sel_admiral = 1 end
+end
+
+local function pick_candidate(idx)
+  if not roster or not roster[idx] then return end
+  if #admirals >= MAX_ADMIRAL_SLOTS then return end
+  if officer_xp < PROMOTION_THRESHOLD then return end
+  local cand = roster[idx]
+  table.insert(admirals, init_admiral(cand.name, cand.traits))
+  sel_admiral = #admirals
+  officer_xp = officer_xp - PROMOTION_THRESHOLD
+  close_roster()
+end
+
 local function update_fleet()
+  if fleet_mode == "roster" then
+    if not mclicked() then return end
+    if in_box(mx, my, R_C1_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(1)
+    elseif in_box(mx, my, R_C2_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(2)
+    elseif in_box(mx, my, R_C3_X, R_C_Y, R_C_W, R_C_H) then pick_candidate(3)
+    elseif in_box(mx, my, R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H) then close_roster()
+    end
+    return
+  end
   if not mclicked() then return end
+  if in_box(mx, my, F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H) then
+    if #admirals > 0 then
+      sel_admiral = sel_admiral - 1
+      if sel_admiral < 1 then sel_admiral = #admirals end
+    end
+    return
+  elseif in_box(mx, my, F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H) then
+    if #admirals > 0 then
+      sel_admiral = sel_admiral + 1
+      if sel_admiral > #admirals then sel_admiral = 1 end
+    end
+    return
+  elseif in_box(mx, my, F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H) then
+    if #admirals > 1 then fire_admiral(sel_admiral) end
+    return
+  elseif in_box(mx, my, F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H) then
+    if officer_xp >= PROMOTION_THRESHOLD and #admirals < MAX_ADMIRAL_SLOTS then
+      open_roster()
+    end
+    return
+  end
   local a = admirals[sel_admiral]
   if not a then return end
   if not a.alive then
@@ -761,7 +876,8 @@ local function update_fleet()
       if money >= HIRE_MONEY_COST and rp >= HIRE_RP_COST then
         money = money - HIRE_MONEY_COST
         rp = rp - HIRE_RP_COST
-        admirals[sel_admiral] = init_admiral(NAMES[math.random(1, #NAMES)])
+        admirals[sel_admiral] = init_admiral(
+          NAMES[math.random(1, #NAMES)], roll_traits(1))
       end
     end
     return
@@ -1025,7 +1141,51 @@ local function draw_panel_button(x, y, w, h, label, hot, can, base_color)
   print(label, x + 4, y + 3, edge, false, 1, true)
 end
 
+local function traits_str(traits)
+  if not traits or #traits == 0 then return "(no traits)" end
+  local out = traits[1]
+  for i = 2, #traits do out = out .. "," .. traits[i] end
+  return out
+end
+
+local function draw_roster()
+  cls(0)
+  for i = 0, 60 do
+    local x = (i * 41 + 13) % SW
+    local y = MAP_Y0 + (i * 23 + 9) % (MAP_Y1 - MAP_Y0)
+    pix(x, y, 13)
+  end
+  print("promotion roster: pick one officer",
+        4, 12, 11, false, 1, true)
+  print(string.format("officer xp: %d  slots %d/%d",
+          officer_xp, #admirals, MAX_ADMIRAL_SLOTS),
+        4, 124, 14, false, 1, true)
+  local positions = {R_C1_X, R_C2_X, R_C3_X}
+  for i = 1, 3 do
+    local cx = positions[i]
+    local cand = roster and roster[i]
+    local hot = in_box(mx, my, cx, R_C_Y, R_C_W, R_C_H)
+    local edge = hot and 11 or 14
+    rect(cx, R_C_Y, R_C_W, R_C_H, 1)
+    rectb(cx, R_C_Y, R_C_W, R_C_H, edge)
+    if cand then
+      print(cand.name, cx + 4, R_C_Y + 4, 6, false, 1, true)
+      print("traits:", cx + 4, R_C_Y + 16, 14, false, 1, true)
+      for ti, t in ipairs(cand.traits) do
+        print("- " .. t, cx + 4, R_C_Y + 26 + (ti - 1) * 8,
+              11, false, 1, true)
+      end
+      print("[promote]", cx + 4, R_C_Y + R_C_H - 10,
+            edge, false, 1, true)
+    end
+  end
+  local sk_hot = in_box(mx, my, R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H)
+  draw_panel_button(R_SKIP_X, R_SKIP_Y, R_SKIP_W, R_SKIP_H,
+    "skip", sk_hot, true)
+end
+
 local function draw_fleet()
+  if fleet_mode == "roster" then draw_roster(); return end
   cls(0)
   for i = 0, 70 do
     local x = (i * 41 + 13) % SW
@@ -1035,15 +1195,23 @@ local function draw_fleet()
 
   local a = admirals[sel_admiral]
   if not a then
-    print("no admirals", 4, 60, 8, false, 1, true)
+    print("no admirals - hire one via promotion", 4, 60, 8, false, 1, true)
     return
   end
 
   local hdr_col = a.alive and 6 or 8
-  print(string.format("admiral %d: %s", sel_admiral, a.name),
-        4, 14, hdr_col, false, 1, true)
+  -- prev / next nav
+  draw_panel_button(F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H, "<",
+    in_box(mx, my, F_PREV_X, F_PREV_Y, F_PREV_W, F_PREV_H), #admirals > 1)
+  draw_panel_button(F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H, ">",
+    in_box(mx, my, F_NEXT_X, F_NEXT_Y, F_NEXT_W, F_NEXT_H), #admirals > 1)
+  print(string.format("adm %d/%d: %s", sel_admiral, #admirals, a.name),
+        14, 14, hdr_col, false, 1, true)
   print(a.alive and "(active)" or "(lost)",
-        130, 14, hdr_col, false, 1, true)
+        100, 14, hdr_col, false, 1, true)
+  -- fire button (disabled if last admiral)
+  draw_panel_button(F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H, "fire",
+    in_box(mx, my, F_FIRE_X, F_FIRE_Y, F_FIRE_W, F_FIRE_H), #admirals > 1)
 
   if not a.alive then
     print("flagship destroyed. admiral lost.",
@@ -1055,6 +1223,16 @@ local function draw_fleet()
       in_box(mx, my, F_HIRE_X, F_HIRE_Y, F_HIRE_W, F_HIRE_H), can)
     return
   end
+
+  -- traits line
+  print("traits: " .. traits_str(a.traits), 4, 100, 11, false, 1, true)
+
+  -- promotion button
+  local promo_can = officer_xp >= PROMOTION_THRESHOLD
+                    and #admirals < MAX_ADMIRAL_SLOTS
+  draw_panel_button(F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H,
+    string.format("xp %d/%d roster", officer_xp, PROMOTION_THRESHOLD),
+    in_box(mx, my, F_PROMO_X, F_PROMO_Y, F_PROMO_W, F_PROMO_H), promo_can)
 
   print("flagship", 4, 24, FLAGSHIP.color, false, 1, true)
   local fbw = 70
