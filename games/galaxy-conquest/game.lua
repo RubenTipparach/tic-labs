@@ -5,6 +5,8 @@
 
 -- M1: galaxy map + system view shell.
 -- M2: combat sim. Fighters, bullets, planet turret, wrecks, particles.
+-- M2.1: per-star simulation. Combat continues on every star, every frame,
+--       even when the player is on the galaxy map. Ship counts shown on map.
 -- Later milestones add economy, salvage, admirals, research, empires, save/load.
 
 local SW, SH = 240, 136
@@ -35,9 +37,7 @@ local money, rp = 50, 0
 local seed = 1
 local frame = 0
 
--- per-system runtime sim (only valid while in system view)
-local ships = {}
-local bullets = {}
+-- particles are cosmetic only; spawned only for the viewed system
 local particles = {}
 
 local TAB_GX0, TAB_GX1 = 80, 130
@@ -48,10 +48,6 @@ local SPAWN_BW, SPAWN_BH = 56, 11
 local function d2(x1, y1, x2, y2)
   local dx, dy = x1 - x2, y1 - y2
   return dx * dx + dy * dy
-end
-
-local function dist(x1, y1, x2, y2)
-  return math.sqrt(d2(x1, y1, x2, y2))
 end
 
 local function in_rect(px, py, x0, y0, x1, y1)
@@ -90,8 +86,11 @@ local function gen_galaxy()
         capital = false,
         tier = math.random(1, 3),
         name = "",
+        ships = {},
+        bullets = {},
         wrecks = {},
         turret_hp = nil,
+        turret_cd = 0,
       })
     end
   end
@@ -148,19 +147,19 @@ local function add_particle(x, y, count, color)
   end
 end
 
-local function fire_bullet(x, y, tx, ty, team, dmg)
+local function fire_bullet(s, x, y, tx, ty, team, dmg)
   local dx, dy = tx - x, ty - y
   local d = math.sqrt(dx * dx + dy * dy)
   if d < 0.1 then d = 0.1 end
-  table.insert(bullets, {
+  table.insert(s.bullets, {
     x = x, y = y,
     vx = dx / d * BULLET_SPEED, vy = dy / d * BULLET_SPEED,
     team = team, dmg = dmg, life = 50,
   })
 end
 
-local function spawn_fighter()
-  table.insert(ships, {
+local function spawn_fighter(s)
+  table.insert(s.ships, {
     x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
     vx = 0, vy = 0,
     hp = FIGHTER.hp, max_hp = FIGHTER.hp,
@@ -176,19 +175,10 @@ end
 
 -- ---- view switching ----
 
-local function enter_system()
-  ships, bullets, particles = {}, {}, {}
-end
-
-local function leave_system()
-  ships, bullets, particles = {}, {}, {}
-end
-
 local function set_view(v)
   if v == view then return end
-  if view == "system" then leave_system() end
   view = v
-  if view == "system" then enter_system() end
+  particles = {}
 end
 
 -- ---- input ----
@@ -228,17 +218,15 @@ local function update_galaxy()
   end
 end
 
--- ---- combat sim ----
+-- ---- per-star combat sim ----
 
-local function update_player_ships()
-  local s = stars[sel_idx]
-  if not s then return end
+local function tick_ships(s, viewed)
   local px, py = MAP_CX, MAP_CY
   local pr = planet_radius(s)
-  local enemy = s.owner ~= 1 and (s.turret_hp or 0) > 0
+  local enemy_alive = s.owner ~= 1 and (s.turret_hp or 0) > 0
   local i = 1
-  while i <= #ships do
-    local sh = ships[i]
+  while i <= #s.ships do
+    local sh = s.ships[i]
     local dx, dy = px - sh.x, py - sh.y
     local d = math.sqrt(dx * dx + dy * dy)
     if d < 0.1 then d = 0.1 end
@@ -258,62 +246,62 @@ local function update_player_ships()
     if sh.y > MAP_Y1 - 2 then sh.y = MAP_Y1 - 2 end
 
     sh.fire_cd = sh.fire_cd - 1
-    if enemy and sh.fire_cd <= 0 and d < FIGHTER.range then
-      fire_bullet(sh.x, sh.y, px, py, 1, FIGHTER.dmg)
+    if enemy_alive and sh.fire_cd <= 0 and d < FIGHTER.range then
+      fire_bullet(s, sh.x, sh.y, px, py, 1, FIGHTER.dmg)
       sh.fire_cd = FIGHTER.fire_cd
     end
 
     if sh.hp <= 0 then
-      add_particle(sh.x, sh.y, 10, 8)
-      add_particle(sh.x, sh.y, 4, 9)
+      if viewed then
+        add_particle(sh.x, sh.y, 10, 8)
+        add_particle(sh.x, sh.y, 4, 9)
+      end
       table.insert(s.wrecks, {x = sh.x, y = sh.y})
-      table.remove(ships, i)
+      table.remove(s.ships, i)
     else
       i = i + 1
     end
   end
 end
 
-local function update_turret()
-  local s = stars[sel_idx]
-  if not s or s.owner == 1 or not s.turret_hp or s.turret_hp <= 0 then return end
+local function tick_turret(s)
+  if s.owner == 1 or not s.turret_hp or s.turret_hp <= 0 then return end
   s.turret_cd = (s.turret_cd or 0) - 1
   if s.turret_cd > 0 then return end
   local best, bd = nil, 1e9
-  for _, sh in ipairs(ships) do
+  for _, sh in ipairs(s.ships) do
     if sh.team == 1 then
       local d = d2(MAP_CX, MAP_CY, sh.x, sh.y)
       if d < bd then best, bd = sh, d end
     end
   end
   if best and math.sqrt(bd) <= TURRET.range then
-    fire_bullet(MAP_CX, MAP_CY, best.x, best.y, 2, TURRET.dmg)
+    fire_bullet(s, MAP_CX, MAP_CY, best.x, best.y, 2, TURRET.dmg)
     s.turret_cd = TURRET.fire_cd
   end
 end
 
-local function update_bullets()
-  local s = stars[sel_idx]
-  local pr2 = s and (planet_radius(s) * planet_radius(s)) or 0
+local function tick_bullets(s, viewed)
+  local pr2 = planet_radius(s) * planet_radius(s)
   local i = 1
-  while i <= #bullets do
-    local b = bullets[i]
+  while i <= #s.bullets do
+    local b = s.bullets[i]
     b.x = b.x + b.vx
     b.y = b.y + b.vy
     b.life = b.life - 1
     local hit = false
     if b.team == 1 then
-      if s and s.owner ~= 1 and s.turret_hp and s.turret_hp > 0
+      if s.owner ~= 1 and s.turret_hp and s.turret_hp > 0
          and d2(b.x, b.y, MAP_CX, MAP_CY) <= pr2 then
         s.turret_hp = s.turret_hp - b.dmg
-        add_particle(b.x, b.y, 4, 9)
+        if viewed then add_particle(b.x, b.y, 4, 9) end
         hit = true
       end
     else
-      for _, sh in ipairs(ships) do
+      for _, sh in ipairs(s.ships) do
         if sh.team == 1 and d2(b.x, b.y, sh.x, sh.y) <= 9 then
           sh.hp = sh.hp - b.dmg
-          add_particle(b.x, b.y, 3, 9)
+          if viewed then add_particle(b.x, b.y, 3, 9) end
           hit = true
           break
         end
@@ -322,14 +310,14 @@ local function update_bullets()
     if hit or b.life <= 0
        or b.x < 0 or b.x > SW
        or b.y < MAP_Y0 or b.y > MAP_Y1 then
-      table.remove(bullets, i)
+      table.remove(s.bullets, i)
     else
       i = i + 1
     end
   end
 end
 
-local function update_particles()
+local function tick_particles()
   local i = 1
   while i <= #particles do
     local p = particles[i]
@@ -346,17 +334,36 @@ local function update_particles()
   end
 end
 
+local function tick_world()
+  for i, s in ipairs(stars) do
+    local viewed = (i == sel_idx and view == "system")
+    if #s.ships > 0 or #s.bullets > 0 or viewed then
+      tick_ships(s, viewed)
+      tick_turret(s)
+      tick_bullets(s, viewed)
+    end
+  end
+  tick_particles()
+end
+
 local function update_system()
   if mclicked() and in_box(mx, my, SPAWN_BX0, SPAWN_BY0, SPAWN_BW, SPAWN_BH) then
-    spawn_fighter()
+    local s = stars[sel_idx]
+    if s then spawn_fighter(s) end
   end
-  update_player_ships()
-  update_turret()
-  update_bullets()
-  update_particles()
 end
 
 -- ---- drawing ----
+
+local function total_player_ships()
+  local n = 0
+  for _, s in ipairs(stars) do
+    for _, sh in ipairs(s.ships) do
+      if sh.team == 1 then n = n + 1 end
+    end
+  end
+  return n
+end
 
 local function draw_topbar()
   rect(0, 0, SW, TOPBAR_H, 0)
@@ -379,9 +386,10 @@ local function draw_botbar()
           2, SH - BOTBAR_H + 3, EMP_COLOR[s.owner], false, 1, true)
   end
   if view == "galaxy" then
-    print("rclick:enter", SW - 56, SH - BOTBAR_H + 3, 14, false, 1, true)
+    print(string.format("active fighters: %d", total_player_ships()),
+          SW - 100, SH - BOTBAR_H + 3, 11, false, 1, true)
   else
-    print(string.format("ships:%d wrecks:%d", #ships, s and #s.wrecks or 0),
+    print(string.format("ships:%d wrecks:%d", s and #s.ships or 0, s and #s.wrecks or 0),
           SW - 86, SH - BOTBAR_H + 3, 14, false, 1, true)
   end
 end
@@ -406,6 +414,15 @@ local function draw_galaxy()
     circ(s.x, s.y, r, EMP_COLOR[s.owner])
     if s.capital then circb(s.x, s.y, r + 2, EMP_COLOR[s.owner]) end
   end
+  -- combat indicators on top
+  for _, s in ipairs(stars) do
+    if #s.ships > 0 then
+      -- pulse a ring
+      local rr = 5 + (frame // 8) % 3
+      circb(s.x, s.y, rr, 11)
+      print("x" .. #s.ships, s.x + 4, s.y - 6, 11, false, 1, true)
+    end
+  end
   if hov_idx then
     local s = stars[hov_idx]
     circb(s.x, s.y, 6, 15)
@@ -427,8 +444,8 @@ local function draw_ship(sh)
   pix(sh.x, sh.y + 1, body)
 end
 
-local function draw_bullets()
-  for _, b in ipairs(bullets) do
+local function draw_bullets(s)
+  for _, b in ipairs(s.bullets) do
     local c = b.team == 1 and 10 or 9
     pix(b.x, b.y, c)
     pix(b.x - b.vx * 0.5, b.y - b.vy * 0.5, c == 10 and 9 or 8)
@@ -480,11 +497,10 @@ local function draw_system()
   end
 
   draw_wrecks(s)
-  draw_bullets()
-  for _, sh in ipairs(ships) do draw_ship(sh) end
+  draw_bullets(s)
+  for _, sh in ipairs(s.ships) do draw_ship(sh) end
   draw_particles()
 
-  -- dock at left edge
   rect(DOCK_X - 3, DOCK_Y - 4, 6, 8, 13)
   rectb(DOCK_X - 3, DOCK_Y - 4, 6, 8, 6)
   pix(DOCK_X, DOCK_Y, 6)
@@ -529,6 +545,7 @@ function TIC()
   update_mouse()
   update_topbar()
   if view == "galaxy" then update_galaxy() else update_system() end
+  tick_world()
   if view == "galaxy" then draw_galaxy() else draw_system() end
   draw_topbar()
   draw_botbar()
