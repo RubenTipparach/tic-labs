@@ -88,6 +88,8 @@ local seed = 1
 local frame = 0
 local capture_flash = 0
 local capture_msg = ""
+local victory = false
+local victory_frame = 0
 
 local particles = {}
 
@@ -487,6 +489,14 @@ local function defenses_alive(s)
   return false
 end
 
+local function caps_taken()
+  local n = 0
+  for _, st in ipairs(stars) do
+    if st.capital and st.empire ~= 1 and st.owner == 1 then n = n + 1 end
+  end
+  return n
+end
+
 local function capture_planet(s)
   s.owner = 1
   s.empire = 1
@@ -497,6 +507,12 @@ local function capture_planet(s)
   capture_flash = 60
   capture_msg = string.format("%s captured!", s.name)
   officer_xp = officer_xp + 10
+  if s.capital and not victory and caps_taken() >= 4 then
+    victory = true
+    victory_frame = frame
+    capture_flash = 240
+    capture_msg = "galaxy conquered!"
+  end
 end
 
 -- ---- view switching ----
@@ -1036,7 +1052,8 @@ end
 
 local function draw_topbar()
   rect(0, 0, SW, TOPBAR_H, 0)
-  print(string.format("$%d rp:%d", money, rp), 2, 3, 9, false, 1, true)
+  print(string.format("$%d rp:%d cap:%d/4", money, rp, caps_taken()),
+        2, 3, 9, false, 1, true)
   local g_col = view == "galaxy"   and 11 or 14
   local s_col = view == "system"   and 11 or 14
   local f_col = view == "fleet"    and 11 or 14
@@ -1455,6 +1472,20 @@ end
 gen_galaxy()
 table.insert(admirals, init_admiral("kira"))
 
+local function draw_victory()
+  if not victory then return end
+  local bw, bh = 160, 40
+  local bx, by = math.floor((SW - bw) / 2), math.floor((SH - bh) / 2)
+  rect(bx, by, bw, bh, 0)
+  rectb(bx, by, bw, bh, 9)
+  rectb(bx + 1, by + 1, bw - 2, bh - 2, 10)
+  print("galaxy conquered", bx + 24, by + 8, 10, false, 1, false)
+  print(string.format("4 capitals fallen in %ds",
+        math.floor((frame - victory_frame) / 60)),
+        bx + 12, by + 22, 6, false, 1, true)
+  print("watch the stars burn", bx + 38, by + 30, 14, false, 1, true)
+end
+
 function TIC()
   frame = frame + 1
   update_mouse()
@@ -1470,5 +1501,6 @@ function TIC()
   else draw_research() end
   draw_topbar()
   draw_botbar()
+  draw_victory()
   draw_cursor()
 end
