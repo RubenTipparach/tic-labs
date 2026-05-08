@@ -304,6 +304,55 @@ local function fire_bullet(s, x, y, tx, ty, team, dmg)
   })
 end
 
+local function has_trait(a, name)
+  if not a or not a.traits then return false end
+  for _, t in ipairs(a.traits) do
+    if t == name then return true end
+  end
+  return false
+end
+
+local function fighter_hp_bonus()
+  local b = 0
+  if research.o >= 1 then b = b + 1 end
+  if research.d >= 1 then b = b + 2 end
+  return b
+end
+local function fighter_dmg_bonus()
+  return research.o >= 2 and 1 or 0
+end
+local function flagship_dmg_bonus()
+  return research.o >= 3 and 1 or 0
+end
+local function salvage_hp_bonus()
+  return research.d >= 2 and 2 or 0
+end
+local function income_mult()
+  return research.e >= 1 and 1.5 or 1.0
+end
+local function fighter_cost_real()
+  return research.e >= 2 and (FIGHTER_COST - 2) or FIGHTER_COST
+end
+local function global_salvage_mult()
+  return research.e >= 3 and 1.5 or 1.0
+end
+local function admiral_slot_cap()
+  local s = MAX_ADMIRAL_SLOTS
+  if research.l >= 1 then s = s + 1 end
+  if research.l >= 3 then s = s + 1 end
+  return s
+end
+local function dispatch_speedup()
+  return research.l >= 2 and 4 or 0
+end
+local function dispatch_cd_for(a)
+  local cd = 24
+  if has_trait(a, "Logistician") then cd = cd - 8 end
+  cd = cd - dispatch_speedup()
+  if cd < 8 then cd = 8 end
+  return cd
+end
+
 local function spawn_fighter(s, a)
   local hp = FIGHTER.hp + fighter_hp_bonus()
   table.insert(s.ships, {
@@ -366,55 +415,6 @@ local function admiral_recall(a)
   end
   a.target_idx = nil
   a.dispatch_cd = 0
-end
-
-local function has_trait(a, name)
-  if not a or not a.traits then return false end
-  for _, t in ipairs(a.traits) do
-    if t == name then return true end
-  end
-  return false
-end
-
-local function fighter_hp_bonus()
-  local b = 0
-  if research.o >= 1 then b = b + 1 end
-  if research.d >= 1 then b = b + 2 end
-  return b
-end
-local function fighter_dmg_bonus()
-  return research.o >= 2 and 1 or 0
-end
-local function flagship_dmg_bonus()
-  return research.o >= 3 and 1 or 0
-end
-local function salvage_hp_bonus()
-  return research.d >= 2 and 2 or 0
-end
-local function income_mult()
-  return research.e >= 1 and 1.5 or 1.0
-end
-local function fighter_cost_real()
-  return research.e >= 2 and (FIGHTER_COST - 2) or FIGHTER_COST
-end
-local function global_salvage_mult()
-  return research.e >= 3 and 1.5 or 1.0
-end
-local function admiral_slot_cap()
-  local s = MAX_ADMIRAL_SLOTS
-  if research.l >= 1 then s = s + 1 end
-  if research.l >= 3 then s = s + 1 end
-  return s
-end
-local function dispatch_speedup()
-  return research.l >= 2 and 4 or 0
-end
-local function dispatch_cd_for(a)
-  local cd = 24
-  if has_trait(a, "Logistician") then cd = cd - 8 end
-  cd = cd - dispatch_speedup()
-  if cd < 8 then cd = 8 end
-  return cd
 end
 
 local function roll_traits(n)
