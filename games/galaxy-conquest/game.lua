@@ -72,8 +72,8 @@ local COL_KEYS = {"o", "d", "e", "l"}
 local COL_TITLES = {"offense", "defense", "economy", "logist"}
 
 -- defense baselines, scaled by per-star difficulty
-local TURRET_HP_BASE      = 8
-local PLANET_HP_BASE      = 18
+local TURRET_HP_BASE      = 80
+local PLANET_HP_BASE      = 180
 local DEF_SPAWN_CD_BASE   = 700
 local TURRET_REBUILD_BASE = 600
 
@@ -84,7 +84,7 @@ local stars = {}
 local sel_idx, hov_idx = nil, nil
 local money, rp = STARTING_MONEY, 0
 local money_tick = 0
-local seed = 1
+local seed = (tstamp and tstamp()) or (time and math.floor(time() * 1000)) or 1
 local frame = 0
 local capture_flash = 0
 local capture_msg = ""
@@ -177,9 +177,9 @@ local function init_defenses(s)
   if s.owner == 1 then return end
   local diff = s.diff or 1.0
   local tcount = tier_count(diff, 1, 3)
-  local thp    = math.floor(TURRET_HP_BASE + diff * 5)
+  local thp    = math.floor(TURRET_HP_BASE + diff * 50)
   local dcount = tier_count(diff, 1, 3)
-  local php    = math.floor(PLANET_HP_BASE + diff * 12)
+  local php    = math.floor(PLANET_HP_BASE + diff * 120)
   local rebuild = math.max(240, math.floor(TURRET_REBUILD_BASE - diff * 80))
   local respawn = math.max(180, math.floor(DEF_SPAWN_CD_BASE - diff * 100))
 
@@ -208,6 +208,13 @@ local function gen_galaxy()
   local minD2 = 14 * 14
   local target = 40
   local tries = 0
+  -- shuffle which empire occupies each quadrant so the same four faces
+  -- are not always in the same corners across runs.
+  local quad_emp = {2, 3, 4, 5}
+  for i = #quad_emp, 2, -1 do
+    local j = math.random(1, i)
+    quad_emp[i], quad_emp[j] = quad_emp[j], quad_emp[i]
+  end
   while #stars < target and tries < target * 80 do
     tries = tries + 1
     local x = math.random(8, SW - 8)
@@ -217,11 +224,12 @@ local function gen_galaxy()
       if d2(x, y, stars[i].x, stars[i].y) < minD2 then ok = false break end
     end
     if ok then
-      local emp
-      if x < MAP_CX and y < MAP_CY then emp = 2
-      elseif x >= MAP_CX and y < MAP_CY then emp = 3
-      elseif x < MAP_CX then emp = 4
-      else emp = 5 end
+      local q
+      if x < MAP_CX and y < MAP_CY then q = 1
+      elseif x >= MAP_CX and y < MAP_CY then q = 2
+      elseif x < MAP_CX then q = 3
+      else q = 4 end
+      local emp = quad_emp[q]
       table.insert(stars, {
         x = x, y = y,
         empire = emp, owner = emp,
@@ -507,6 +515,13 @@ local function capture_planet(s)
   capture_flash = 60
   capture_msg = string.format("%s captured!", s.name)
   officer_xp = officer_xp + 10
+  -- recall any admiral that was attacking here, survivors retreat home
+  for _, a in ipairs(admirals) do
+    if a.alive and a.target_idx then
+      local t = stars[a.target_idx]
+      if t == s then admiral_recall(a) end
+    end
+  end
   if s.capital and not victory and caps_taken() >= 4 then
     victory = true
     victory_frame = frame
@@ -819,15 +834,20 @@ local function tick_bullets(s, viewed)
           end
         end
       end
-      if not hit and not def_alive
-         and s.owner ~= 1 and s.planet_hp and s.planet_hp > 0
-         and d2(b.x, b.y, MAP_CX, MAP_CY) <= pr2 then
-        s.planet_hp = s.planet_hp - b.dmg
-        if viewed then add_particle(b.x, b.y, 4, 8) end
+      if not hit and d2(b.x, b.y, MAP_CX, MAP_CY) <= pr2 then
+        -- bullet hit the planet body, always consumed
         hit = true
-        if s.planet_hp <= 0 then
-          if viewed then add_particle(MAP_CX, MAP_CY, 30, 8) end
-          capture_planet(s)
+        if not def_alive and s.owner ~= 1
+           and s.planet_hp and s.planet_hp > 0 then
+          s.planet_hp = s.planet_hp - b.dmg
+          if viewed then add_particle(b.x, b.y, 4, 8) end
+          if s.planet_hp <= 0 then
+            if viewed then add_particle(MAP_CX, MAP_CY, 30, 8) end
+            capture_planet(s)
+          end
+        else
+          -- defenses still up: bullet just splashes off the planet
+          if viewed then add_particle(b.x, b.y, 2, 6) end
         end
       end
     else

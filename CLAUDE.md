@@ -18,6 +18,37 @@ for the expected format. When authoring a new cart from scratch, add a
 placeholder label (a 128x128 black field is fine) so the build passes,
 then capture a real label later in PICO-8.
 
+## TIC-80 SWEETIE-16 palette
+
+TIC-80 carts are locked to a 16-color indexed palette. Picking colors
+outside this set looks washed out or off-key, so prefer indices 0..15
+when authoring sprites, UI, or particle effects. Index, hex, and the
+short name to use in comments:
+
+| # | hex      | name        |
+|---|----------|-------------|
+| 0 | #1a1c2c  | black       |
+| 1 | #5d275d  | purple      |
+| 2 | #b13e53  | red         |
+| 3 | #ef7d57  | orange      |
+| 4 | #ffcd75  | yellow      |
+| 5 | #a7f070  | light green |
+| 6 | #38b764  | green       |
+| 7 | #257179  | dark teal   |
+| 8 | #29366f  | dark blue   |
+| 9 | #3b5dc9  | blue        |
+| 10| #41a6f6  | light blue  |
+| 11| #73eff7  | cyan        |
+| 12| #f4f4f4  | white       |
+| 13| #94b0c2  | light gray  |
+| 14| #566c86  | gray        |
+| 15| #333c57  | dark gray   |
+
+Common pairings: 0/15 for backgrounds and shadows, 12/13 for foreground
+text, 11/10/9/8 for friendly ships and water, 2/3/4 for hostile ships
+and explosions, 5/6/7 for organics and salvage. Avoid using index 14
+for player UI text, it disappears against dark backgrounds.
+
 ## Post-commit links
 
 After each commit, always show these links to the user:
