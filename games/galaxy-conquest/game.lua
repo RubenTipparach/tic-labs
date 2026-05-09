@@ -125,6 +125,11 @@ local R = {
   r_card2 = {82,  22, 75, 70},
   r_card3 = {160, 22, 75, 70},
   r_skip  = {90, 100, 60, 12},
+  -- galaxy view fleet command panel (right side, above bot bar)
+  g_aprev = {SW - 100, MAP_Y1 - 32, 8,  9},
+  g_anext = {SW - 12,  MAP_Y1 - 32, 10, 9},
+  g_send  = {SW - 100, MAP_Y1 - 22, 98, 9},
+  g_rec   = {SW - 100, MAP_Y1 - 12, 98, 9},
 }
 
 -- research view layout
@@ -599,6 +604,36 @@ local function update_research()
 end
 
 local function update_galaxy()
+  -- fleet command panel takes click priority over star picking
+  if mclicked() then
+    if in_b(R.g_aprev) and #admirals > 1 then
+      sel_admiral = sel_admiral - 1
+      if sel_admiral < 1 then sel_admiral = #admirals end
+      return
+    end
+    if in_b(R.g_anext) and #admirals > 1 then
+      sel_admiral = sel_admiral + 1
+      if sel_admiral > #admirals then sel_admiral = 1 end
+      return
+    end
+    if in_b(R.g_send) then
+      local a = admirals[sel_admiral]
+      if a and a.alive and sel_idx and stars[sel_idx]
+         and stars[sel_idx].owner ~= 1 then
+        if a.target_idx and a.target_idx ~= sel_idx then
+          admiral_recall(a)
+        end
+        a.target_idx = sel_idx
+        a.dispatch_cd = 0
+        return
+      end
+    end
+    if in_b(R.g_rec) then
+      local a = admirals[sel_admiral]
+      if a and a.alive then admiral_recall(a) end
+      return
+    end
+  end
   hov_idx = pick_star_at(mx, my)
   if hov_idx and my >= MAP_Y0 and my < MAP_Y1 then
     if mclicked() then sel_idx = hov_idx end
@@ -1117,6 +1152,16 @@ local function draw_botbar()
   end
 end
 
+local function draw_panel_button(x, y, w, h, label, hot, can, base_color)
+  local edge
+  if not can then edge = 8
+  elseif hot then edge = 11
+  else edge = base_color or 14 end
+  rect(x, y, w, h, 1)
+  rectb(x, y, w, h, edge)
+  print(label, x + 4, y + 3, edge, false, 1, true)
+end
+
 local function draw_galaxy_bg()
   cls(0)
   for i = 0, 80 do
@@ -1151,6 +1196,44 @@ local function draw_galaxy()
   if sel_idx and sel_idx ~= hov_idx then
     local s = stars[sel_idx]
     circb(s.x, s.y, 5, 12)
+  end
+  -- mark current admiral's target with a yellow ring + dispatch line
+  local a = admirals[sel_admiral]
+  if a and a.alive and a.target_idx and stars[a.target_idx] then
+    local t = stars[a.target_idx]
+    circb(t.x, t.y, 7, 4)
+    line(DOCK_X, MAP_CY, t.x, t.y, 4)
+  end
+  -- fleet command panel (admiral picker, send here, recall)
+  do
+    local px, py = R.g_aprev[1] - 2, R.g_aprev[2] - 2
+    local pw, ph = (R.g_rec[1] + R.g_rec[3]) - px + 2,
+                   (R.g_rec[2] + R.g_rec[4]) - py + 2
+    rect(px, py, pw, ph, 0)
+    rectb(px, py, pw, ph, 14)
+    local lbl = "no admirals"
+    local col = 14
+    if a then
+      lbl = string.format("adm %d/%d %s", sel_admiral, #admirals, a.name)
+      col = a.alive and 11 or 8
+    end
+    if #admirals > 1 then
+      draw_panel_button(R.g_aprev[1], R.g_aprev[2], R.g_aprev[3],
+        R.g_aprev[4], "<", in_b(R.g_aprev), true)
+      draw_panel_button(R.g_anext[1], R.g_anext[2], R.g_anext[3],
+        R.g_anext[4], ">", in_b(R.g_anext), true)
+    end
+    print(lbl, R.g_aprev[1] + 10, R.g_aprev[2] + 1, col, false, 1, true)
+    local can_send = a and a.alive and sel_idx and stars[sel_idx]
+                     and stars[sel_idx].owner ~= 1
+    local send_lbl = "send fleet"
+    if sel_idx and stars[sel_idx] then
+      send_lbl = "send to " .. stars[sel_idx].name
+    end
+    draw_panel_button(R.g_send[1], R.g_send[2], R.g_send[3], R.g_send[4],
+      send_lbl, in_b(R.g_send), can_send)
+    draw_panel_button(R.g_rec[1], R.g_rec[2], R.g_rec[3], R.g_rec[4],
+      "recall fleet", in_b(R.g_rec), a and a.alive)
   end
 end
 
@@ -1294,16 +1377,6 @@ local function draw_system()
     rectb(cx2, MAP_Y0 + 16, cw, 9, 6)
     print(capture_msg, cx2 + 3, MAP_Y0 + 18, 6, false, 1, true)
   end
-end
-
-local function draw_panel_button(x, y, w, h, label, hot, can, base_color)
-  local edge
-  if not can then edge = 8
-  elseif hot then edge = 11
-  else edge = base_color or 14 end
-  rect(x, y, w, h, 1)
-  rectb(x, y, w, h, edge)
-  print(label, x + 4, y + 3, edge, false, 1, true)
 end
 
 local function traits_str(traits)
