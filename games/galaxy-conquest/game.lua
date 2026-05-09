@@ -508,6 +508,7 @@ end
 local function capture_planet(s)
   s.owner = 1
   s.empire = 1
+  s.captured = true
   s.planet_hp = s.planet_max
   s.turrets = {}
   s.defenders = {}
@@ -893,7 +894,13 @@ local function tick_money()
     money_tick = 0
     for _, s in ipairs(stars) do
       if s.owner == 1 then
-        money = money + math.floor((1 + s.tier) * income_mult())
+        -- captured worlds pay tribute, scales with tier and capital bonus
+        local base = 1 + s.tier
+        if s.captured then
+          base = base + s.tier * 2 + (s.capital and 6 or 0)
+        end
+        money = money + math.floor(base * income_mult())
+        rp = rp + (s.captured and (s.capital and 2 or 1) or 0)
       end
     end
   end
