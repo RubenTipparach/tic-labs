@@ -178,12 +178,28 @@ local function tier_count(diff, lo, hi)
   return v
 end
 
+local function spawn_defender(s)
+  local a = math.random() * 6.2832
+  local pr = planet_radius(s)
+  local x = MAP_CX + math.cos(a) * (pr + 6)
+  local y = MAP_CY + math.sin(a) * (pr + 6)
+  table.insert(s.defenders, {
+    x = x, y = y,
+    vx = 0, vy = 0,
+    hp = DEFENDER.hp, max_hp = DEFENDER.hp,
+    team = 2, kind = "defender",
+    fire_cd = math.random(0, 30),
+    orbit_dir = math.random() < 0.5 and 1 or -1,
+  })
+end
+
 local function init_defenses(s)
   if s.owner == 1 then return end
   local diff = s.diff or 1.0
   local tcount = tier_count(diff, 1, 3)
   local thp    = math.floor(TURRET_HP_BASE + diff * 50)
-  local dcount = tier_count(diff, 1, 3)
+  -- easy worlds start with 3 fighters, far ones spawn meaningfully more
+  local dcount = math.max(3, math.floor(2 + diff * 1.5))
   local php    = math.floor(PLANET_HP_BASE + diff * 120)
   local rebuild = math.max(240, math.floor(TURRET_REBUILD_BASE - diff * 80))
   local respawn = math.max(180, math.floor(DEF_SPAWN_CD_BASE - diff * 100))
@@ -205,6 +221,8 @@ local function init_defenses(s)
   s.turret_rebuild_cd = rebuild
   s.planet_hp = php
   s.planet_max = php
+  -- pre-spawn the patrol so the planet is defended from frame 0
+  for _ = 1, dcount do spawn_defender(s) end
 end
 
 local function gen_galaxy()
@@ -479,20 +497,6 @@ local function close_roster()
   fleet_mode = "panel"
 end
 
-local function spawn_defender(s)
-  local a = math.random() * 6.2832
-  local pr = planet_radius(s)
-  local x = MAP_CX + math.cos(a) * (pr + 6)
-  local y = MAP_CY + math.sin(a) * (pr + 6)
-  table.insert(s.defenders, {
-    x = x, y = y,
-    vx = 0, vy = 0,
-    hp = DEFENDER.hp, max_hp = DEFENDER.hp,
-    team = 2, kind = "defender",
-    fire_cd = math.random(0, 30),
-    orbit_dir = math.random() < 0.5 and 1 or -1,
-  })
-end
 
 local function defenses_alive(s)
   if #s.defenders > 0 then return true end
@@ -1319,14 +1323,36 @@ local function draw_planet_hp(s)
   if s.owner == 1 or not s.planet_max then return end
   local tw = 60
   local tx = SW - tw - 4
-  local ty = MAP_Y0 + 4
-  rect(tx, ty, tw, 7, 1)
+  -- defenses bar (defenders + turrets, normalized vs the starting total)
+  local d_cur, d_max = 0, 0
+  for _, df in ipairs(s.defenders) do
+    d_cur = d_cur + math.max(0, df.hp)
+    d_max = d_max + df.max_hp
+  end
+  d_max = d_max + DEFENDER.hp * math.max(0,
+    (s.max_defenders or 0) - #s.defenders)
+  for _, t in ipairs(s.turrets) do
+    d_cur = d_cur + math.max(0, t.hp)
+    d_max = d_max + t.max
+  end
+  local dty = MAP_Y0 + 4
+  rect(tx, dty, tw, 7, 1)
+  if d_max > 0 then
+    local dfrac = d_cur / d_max
+    if dfrac < 0 then dfrac = 0 elseif dfrac > 1 then dfrac = 1 end
+    rect(tx + 1, dty + 1, math.floor((tw - 2) * dfrac), 5, 2)
+  end
+  rectb(tx, dty, tw, 7, 14)
+  print("def", tx + 4, dty + 1, 14, false, 1, true)
+  -- planet bar
+  local pty = dty + 9
+  rect(tx, pty, tw, 7, 1)
   local frac = s.planet_hp / s.planet_max
   if frac < 0 then frac = 0 end
   local barc = defenses_alive(s) and 14 or 8
-  rect(tx + 1, ty + 1, math.floor((tw - 2) * frac), 5, barc)
-  rectb(tx, ty, tw, 7, 14)
-  print("planet", tx + 4, ty + 1, 14, false, 1, true)
+  rect(tx + 1, pty + 1, math.floor((tw - 2) * frac), 5, barc)
+  rectb(tx, pty, tw, 7, 14)
+  print("planet", tx + 4, pty + 1, 14, false, 1, true)
 end
 
 local function draw_system()
