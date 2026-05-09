@@ -265,6 +265,7 @@ local function gen_galaxy()
         turrets = {}, defenders = {},
         planet_hp = nil, planet_max = nil,
         diff = 1.0,
+        pseed = math.random() * 100,
       })
     end
   end
@@ -1355,20 +1356,82 @@ local function draw_planet_hp(s)
   print("planet", tx + 4, pty + 1, 14, false, 1, true)
 end
 
+-- procedurally render a planet with land, water and cloud bands.
+-- color choices come from the SWEETIE-16 palette (see CLAUDE.md).
+local function draw_planet_texture(s, cx, cy, pr)
+  local pr2 = pr * pr
+  local pseed = s.pseed or 1
+  -- biome palette per owner / empire
+  local water_dark, water_light = 8, 9
+  local land_dark, land_light = 7, 6
+  local snow = 12
+  if s.owner == 1 then
+    water_dark, water_light = 8, 10
+    land_dark, land_light = 6, 5
+  elseif s.empire == 2 then
+    water_dark, water_light = 15, 14
+    land_dark, land_light = 1, 2
+    snow = 13
+  elseif s.empire == 3 then
+    water_dark, water_light = 7, 11
+    land_dark, land_light = 4, 3
+  elseif s.empire == 4 then
+    water_dark, water_light = 8, 9
+    land_dark, land_light = 1, 2
+  elseif s.empire == 5 then
+    water_dark, water_light = 0, 15
+    land_dark, land_light = 2, 3
+    snow = 8
+  end
+  for dy = -pr, pr do
+    for dx = -pr, pr do
+      if dx * dx + dy * dy <= pr2 then
+        local h = math.sin(dx * 0.45 + pseed)
+                + math.cos(dy * 0.55 + pseed * 1.3)
+                + math.sin((dx + dy) * 0.3 + pseed * 0.7) * 0.5
+        local color
+        if h > 0.7 then color = land_light
+        elseif h > -0.1 then color = land_dark
+        elseif h > -0.9 then color = water_light
+        else color = water_dark end
+        -- light from upper-left, darken the back side
+        if dx + dy > pr * 0.5 then
+          if color == land_light then color = land_dark
+          elseif color == land_dark then color = 15
+          elseif color == water_light then color = water_dark
+          else color = 0 end
+        end
+        -- cloud bands, scrolling slowly across longitude
+        local cn = math.sin(dx * 0.22 + pseed * 1.7 + (frame or 0) * 0.01)
+                 + math.cos(dy * 0.35 + pseed * 2.1)
+        if cn > 1.4 then color = snow
+        elseif cn > 1.1 then color = 13 end
+        pix(cx + dx, cy + dy, color)
+      end
+    end
+  end
+  -- atmosphere ring
+  circb(cx, cy, pr + 1, 9)
+end
+
 local function draw_system()
-  cls(1)
+  cls(0)
   local sid = sel_idx or 1
-  for i = 0, 100 do
+  for i = 0, 60 do
     local x = (i * 53 + sid * 11) % SW
     local y = MAP_Y0 + (i * 31 + sid * 7) % (MAP_Y1 - MAP_Y0)
     pix(x, y, 13)
+  end
+  for i = 0, 25 do
+    local x = (i * 97 + sid * 17) % SW
+    local y = MAP_Y0 + (i * 41 + sid * 11) % (MAP_Y1 - MAP_Y0)
+    pix(x, y, 14)
   end
   local s = stars[sel_idx]
   if not s then return end
   local cx, cy = MAP_CX, MAP_CY
   local pr = planet_radius(s)
-  circ(cx, cy, pr, EMP_COLOR[s.owner])
-  circb(cx, cy, pr, 0)
+  draw_planet_texture(s, cx, cy, pr)
   draw_turrets(s)
   draw_wrecks(s)
   draw_bullets(s)
