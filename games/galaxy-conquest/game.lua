@@ -91,6 +91,9 @@ local mx, my, ml, mm, mr = 0, 0, false, false, false
 local ml_prev, mr_prev = false, false
 local stars = {}
 local sel_idx, hov_idx = nil, nil
+local sol_idx = nil
+local transits = {}
+local TRANSIT_SPEED = 0.6
 local money, rp = STARTING_MONEY, 0
 local money_tick = 0
 local seed = (tstamp and tstamp()) or (time and math.floor(time() * 1000)) or 1
@@ -303,6 +306,7 @@ local function gen_galaxy()
   stars[best].tier = 1
   stars[best].name = "sol"
   sel_idx = best
+  sol_idx = best
   local sol = stars[best]
 
   for emp = 2, 5 do
@@ -466,26 +470,90 @@ local function spawn_flagship(s, a)
   })
 end
 
+-- inflight ships moving across the galaxy map. Outbound transits
+-- carry kind / admiral and spawn a ship at the target on arrival.
+-- Inbound transits return one unit to the admiral's pool, or restore
+-- the flagship's hp.
+local function add_transit(kind, a, fx, fy, tx, ty, dir, hp, max_hp)
+  table.insert(transits, {
+    kind = kind, admiral = a,
+    fx = fx, fy = fy, tx = tx, ty = ty,
+    x = fx, y = fy,
+    dir = dir, hp = hp, max_hp = max_hp,
+  })
+end
+
+local function tick_transits()
+  local i = 1
+  while i <= #transits do
+    local t = transits[i]
+    local dx, dy = t.tx - t.x, t.ty - t.y
+    local dlen = math.sqrt(dx * dx + dy * dy)
+    if dlen <= TRANSIT_SPEED then
+      -- arrived
+      local a = t.admiral
+      if t.dir == "out" then
+        local s = stars[(t.target_idx)]
+        local hostile = s and s.owner ~= 1
+        if hostile and a and a.alive then
+          if t.kind == "fighter"  then spawn_fighter(s, a)
+          elseif t.kind == "bomber"   then spawn_bomber(s, a)
+          elseif t.kind == "salvage"  then spawn_salvage(s, a)
+          elseif t.kind == "flagship" then
+            spawn_flagship(s, a)
+            a.flagship_deployed = true
+          end
+        else
+          -- target captured or gone, refund the in-flight unit
+          if a and t.kind == "fighter"  then a.fleet_fighter = a.fleet_fighter + 1 end
+          if a and t.kind == "bomber"   then a.fleet_bomber  = (a.fleet_bomber or 0) + 1 end
+          if a and t.kind == "salvage"  then a.fleet_salvage = a.fleet_salvage + 1 end
+          if a and t.kind == "flagship" then a.flagship_deployed = false end
+        end
+      else
+        if a then
+          if t.kind == "fighter"  then a.fleet_fighter = a.fleet_fighter + 1
+          elseif t.kind == "bomber"   then a.fleet_bomber = (a.fleet_bomber or 0) + 1
+          elseif t.kind == "salvage"  then a.fleet_salvage = a.fleet_salvage + 1
+          elseif t.kind == "flagship" then
+            a.flagship_hp = math.max(1, t.hp or a.flagship_hp)
+            a.flagship_deployed = false
+          end
+        end
+      end
+      table.remove(transits, i)
+    else
+      t.x = t.x + dx / dlen * TRANSIT_SPEED
+      t.y = t.y + dy / dlen * TRANSIT_SPEED
+      i = i + 1
+    end
+  end
+end
+
 local function admiral_recall(a)
+  -- send each surviving ship home as an inbound transit (green dot on
+  -- the galaxy map). Pool only refills when the transit reaches Sol.
+  local sol = stars[sol_idx] or stars[1]
+  local hx, hy = sol.x, sol.y
   for _, s in ipairs(stars) do
     local i = 1
     while i <= #s.ships do
       local sh = s.ships[i]
       if sh.team == 1 and sh.admiral == a then
-        if sh.kind == "fighter" then
-          a.fleet_fighter = a.fleet_fighter + 1
-        elseif sh.kind == "bomber" then
-          a.fleet_bomber = (a.fleet_bomber or 0) + 1
-        elseif sh.kind == "salvage" then
-          a.fleet_salvage = a.fleet_salvage + 1
-        elseif sh.kind == "flagship" then
-          a.flagship_hp = math.max(1, sh.hp)
-          a.flagship_deployed = false
-        end
+        add_transit(sh.kind, a, s.x, s.y, hx, hy, "in",
+                    sh.hp, sh.max_hp)
+        if sh.kind == "flagship" then a.flagship_deployed = true end
         table.remove(s.ships, i)
       else
         i = i + 1
       end
+    end
+  end
+  -- also redirect any in-flight outbound transits for this admiral
+  for _, t in ipairs(transits) do
+    if t.admiral == a and t.dir == "out" then
+      t.dir = "in"
+      t.tx, t.ty = hx, hy
     end
   end
   a.target_idx = nil
@@ -1068,35 +1136,38 @@ local function tick_money()
 end
 
 local function tick_admirals()
+  local sol = stars[sol_idx]
   for _, a in ipairs(admirals) do
     if a.alive and a.target_idx then
       local s = stars[a.target_idx]
-      if s and s.owner ~= 1 then
+      if s and s.owner ~= 1 and sol then
         a.dispatch_cd = a.dispatch_cd - 1
         if a.dispatch_cd <= 0 then
-          -- alternate fighters and bombers so the fleet arrives mixed,
-          -- with fighters always going first to screen the slower bombers.
+          local launched = nil
           if a.fleet_fighter > 0
              and (not a.last_dispatched or a.last_dispatched == "bomber"
                   or (a.fleet_bomber or 0) <= 0) then
             a.fleet_fighter = a.fleet_fighter - 1
-            spawn_fighter(s, a)
-            a.last_dispatched = "fighter"
-            a.dispatch_cd = dispatch_cd_for(a)
+            launched = "fighter"
           elseif (a.fleet_bomber or 0) > 0 then
             a.fleet_bomber = a.fleet_bomber - 1
-            spawn_bomber(s, a)
-            a.last_dispatched = "bomber"
-            a.dispatch_cd = dispatch_cd_for(a)
+            launched = "bomber"
           elseif a.fleet_fighter > 0 then
             a.fleet_fighter = a.fleet_fighter - 1
-            spawn_fighter(s, a)
-            a.last_dispatched = "fighter"
-            a.dispatch_cd = dispatch_cd_for(a)
+            launched = "fighter"
           elseif a.fleet_salvage > 0 then
             a.fleet_salvage = a.fleet_salvage - 1
-            spawn_salvage(s, a)
-            a.last_dispatched = "salvage"
+            launched = "salvage"
+          end
+          if launched then
+            local tr = {
+              kind = launched, admiral = a,
+              fx = sol.x, fy = sol.y, tx = s.x, ty = s.y,
+              x = sol.x, y = sol.y,
+              dir = "out", target_idx = a.target_idx,
+            }
+            table.insert(transits, tr)
+            a.last_dispatched = launched
             a.dispatch_cd = dispatch_cd_for(a)
           else
             a.dispatch_cd = 12
@@ -1104,8 +1175,14 @@ local function tick_admirals()
         end
         if a.deploy_flagship_toggle and not a.flagship_deployed
            and a.flagship_hp > 0 then
-          spawn_flagship(s, a)
           a.flagship_deployed = true
+          local tr = {
+            kind = "flagship", admiral = a,
+            fx = sol.x, fy = sol.y, tx = s.x, ty = s.y,
+            x = sol.x, y = sol.y,
+            dir = "out", target_idx = a.target_idx,
+          }
+          table.insert(transits, tr)
         end
       else
         a.target_idx = nil
@@ -1132,6 +1209,7 @@ local function tick_world()
   tick_particles()
   tick_money()
   tick_admirals()
+  tick_transits()
   if capture_flash > 0 then capture_flash = capture_flash - 1 end
 end
 
@@ -1255,7 +1333,7 @@ end
 -- ---- drawing ----
 
 local function total_player_ships()
-  local n = 0
+  local n = #transits
   for _, s in ipairs(stars) do
     for _, sh in ipairs(s.ships) do
       if sh.team == 1 then n = n + 1 end
@@ -1350,11 +1428,26 @@ local function draw_galaxy()
     circb(s.x, s.y, 5, 12)
   end
   -- mark current admiral's target with a yellow ring + dispatch line
+  -- from Sol (not from the static dock at the screen edge)
+  local sol = stars[sol_idx]
   local a = admirals[sel_admiral]
-  if a and a.alive and a.target_idx and stars[a.target_idx] then
+  if a and a.alive and a.target_idx and stars[a.target_idx] and sol then
     local t = stars[a.target_idx]
     circb(t.x, t.y, 7, 4)
-    line(DOCK_X, MAP_CY, t.x, t.y, 4)
+    line(sol.x, sol.y, t.x, t.y, 4)
+  end
+  -- render in-flight ships. outbound matches kind color, inbound is
+  -- always green so a returning fleet is unmistakable.
+  for _, tr in ipairs(transits) do
+    local c = 12
+    if tr.dir == "in" then c = 6
+    elseif tr.kind == "fighter"  then c = FIGHTER.color
+    elseif tr.kind == "bomber"   then c = BOMBER.color
+    elseif tr.kind == "salvage"  then c = SALVAGE.color
+    elseif tr.kind == "flagship" then c = FLAGSHIP.color end
+    pix(tr.x, tr.y, c)
+    pix(tr.x + 1, tr.y, c)
+    pix(tr.x, tr.y + 1, c)
   end
   -- fleet command panel (admiral picker, send here, recall)
   do
