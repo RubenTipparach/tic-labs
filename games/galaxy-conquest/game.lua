@@ -23,7 +23,11 @@ local EMP_NAME  = {[0]="neutral", [1]="you", [2]="pirates",
 local EMP_PREFIX = {[1]="sol", [2]="pi", [3]="he", [4]="sk", [5]="hi"}
 
 -- combat constants
+-- fighters intercept enemy ships, weak vs hardened turrets and planet hp.
+-- bombers ignore ships entirely, hit turrets and planet for big damage,
+-- but are slow and fragile so fighters need to clear interceptors first.
 local FIGHTER  = {hp = 4,  speed = 1.0, fire_cd = 26, range = 44, dmg = 1, color = 11}
+local BOMBER   = {hp = 6,  speed = 0.6, fire_cd = 60, range = 36, dmg = 5, color = 3}
 local FLAGSHIP = {hp = 30, speed = 0.8, fire_cd = 18, range = 52, dmg = 3, color = 12}
 local DEFENDER = {hp = 3,  speed = 0.9, fire_cd = 32, range = 40, dmg = 1, color = 2}
 local SALVAGE  = {hp = 3,  speed = 0.8, color = 10,   value = 6,  rp = 1}
@@ -33,6 +37,7 @@ local DOCK_X, DOCK_Y = 14, MAP_CY
 
 -- economy
 local FIGHTER_COST = 10
+local BOMBER_COST  = 18
 local SALVAGE_COST = 8
 local INCOME_PERIOD = 60
 local STARTING_MONEY = 100
@@ -112,12 +117,14 @@ local R = {
   tab_r = {200, 0, 38, 10},
   -- system view spawn buttons
   spawn = {4, MAP_Y0 + 4,  56, 11},
-  salv  = {4, MAP_Y0 + 17, 56, 11},
+  bomb  = {4, MAP_Y0 + 17, 56, 11},
+  salv  = {4, MAP_Y0 + 30, 56, 11},
   -- fleet panel buttons
   f_set   = {110, 46, 60,  10},
   f_dep   = {4,   58, 152, 10},
-  f_bf    = {4,   72, 100, 11},
-  f_bs    = {110, 72, 100, 11},
+  f_bf    = {4,   72, 76,  11},
+  f_bb    = {82,  72, 76,  11},
+  f_bs    = {160, 72, 76,  11},
   f_rec   = {4,   88, 152, 11},
   f_hire  = {30,  56, 180, 14},
   f_prev  = {2,   12, 8,   10},
@@ -419,6 +426,20 @@ local function spawn_fighter(s, a)
   })
 end
 
+local function spawn_bomber(s, a)
+  local hp = BOMBER.hp + fighter_hp_bonus()
+  table.insert(s.ships, {
+    x = DOCK_X, y = DOCK_Y + math.random(-10, 10),
+    vx = 0, vy = 0,
+    hp = hp, max_hp = hp,
+    team = 1, kind = "bomber",
+    fire_cd = math.random(0, 30),
+    orbit_dir = math.random() < 0.5 and 1 or -1,
+    admiral = a,
+    dmg_bonus = (has_trait(a, "Gunner") and 1 or 0),
+  })
+end
+
 local function spawn_salvage(s, a)
   local hp = SALVAGE.hp + salvage_hp_bonus()
   table.insert(s.ships, {
@@ -453,6 +474,8 @@ local function admiral_recall(a)
       if sh.team == 1 and sh.admiral == a then
         if sh.kind == "fighter" then
           a.fleet_fighter = a.fleet_fighter + 1
+        elseif sh.kind == "bomber" then
+          a.fleet_bomber = (a.fleet_bomber or 0) + 1
         elseif sh.kind == "salvage" then
           a.fleet_salvage = a.fleet_salvage + 1
         elseif sh.kind == "flagship" then
@@ -489,7 +512,7 @@ local function init_admiral(name, traits)
   return {
     name = name,
     traits = traits,
-    fleet_fighter = 0, fleet_salvage = 0,
+    fleet_fighter = 0, fleet_bomber = 0, fleet_salvage = 0,
     target_idx = nil,
     flagship_hp = fhp, flagship_max = fhp,
     flagship_deployed = false,
@@ -714,11 +737,14 @@ local function tick_player_ships(s, viewed)
         rp = rp + SALVAGE.rp
       end
     else
-      local stats = sh.kind == "flagship" and FLAGSHIP or FIGHTER
+      local stats = FIGHTER
+      if sh.kind == "flagship" then stats = FLAGSHIP
+      elseif sh.kind == "bomber" then stats = BOMBER end
       local dx, dy = px - sh.x, py - sh.y
       local d = math.sqrt(dx * dx + dy * dy)
       if d < 0.1 then d = 0.1 end
-      local approach = pr + 22
+      -- bombers approach closer for their bombing run, fighters orbit wider
+      local approach = pr + (sh.kind == "bomber" and 14 or 22)
       if d > approach then
         sh.vx = dx / d * stats.speed
         sh.vy = dy / d * stats.speed
@@ -730,17 +756,10 @@ local function tick_player_ships(s, viewed)
       sh.y = sh.y + sh.vy
       sh.fire_cd = sh.fire_cd - 1
       if enemy and sh.fire_cd <= 0 then
-        -- prioritize the closest in-range enemy ship (interceptor role),
-        -- fall back to alive turrets, finally to the planet body
         local tgx, tgy, in_range = nil, nil, false
         local best = stats.range * stats.range
-        for _, df in ipairs(s.defenders) do
-          if df.hp > 0 then
-            local dd = d2(sh.x, sh.y, df.x, df.y)
-            if dd < best then best, tgx, tgy = dd, df.x, df.y end
-          end
-        end
-        if not tgx then
+        if sh.kind == "bomber" then
+          -- bombers ignore enemy ships, prefer turrets, then planet
           for _, t in ipairs(s.turrets) do
             if t.hp > 0 then
               local tx, ty = turret_pos(s, t)
@@ -748,11 +767,33 @@ local function tick_player_ships(s, viewed)
               if dd < best then best, tgx, tgy = dd, tx, ty end
             end
           end
-        end
-        if tgx then
-          in_range = true
-        elseif d < stats.range then
-          tgx, tgy, in_range = px, py, true
+          if tgx then
+            in_range = true
+          elseif d < stats.range then
+            tgx, tgy, in_range = px, py, true
+          end
+        else
+          -- fighters and flagships: enemy ship first, then turret, then planet
+          for _, df in ipairs(s.defenders) do
+            if df.hp > 0 then
+              local dd = d2(sh.x, sh.y, df.x, df.y)
+              if dd < best then best, tgx, tgy = dd, df.x, df.y end
+            end
+          end
+          if not tgx then
+            for _, t in ipairs(s.turrets) do
+              if t.hp > 0 then
+                local tx, ty = turret_pos(s, t)
+                local dd = d2(sh.x, sh.y, tx, ty)
+                if dd < best then best, tgx, tgy = dd, tx, ty end
+              end
+            end
+          end
+          if tgx then
+            in_range = true
+          elseif d < stats.range then
+            tgx, tgy, in_range = px, py, true
+          end
         end
         if in_range then
           local extra = sh.kind == "flagship"
@@ -793,13 +834,23 @@ local function tick_defenders(s, viewed)
   local i = 1
   while i <= #s.defenders do
     local df = s.defenders[i]
-    local target, td = nil, 1e9
+    -- Defender targeting priority: player fighters and flagships first
+    -- (the ships actively shooting at them), then bombers (slow, fragile,
+    -- highly threatening to the planet), salvage last (no guns).
+    local target, ts = nil, 1e18
     for _, sh in ipairs(s.ships) do
       if sh.team == 1 then
+        local prio
+        if sh.kind == "fighter" or sh.kind == "flagship" then prio = 0
+        elseif sh.kind == "bomber" then prio = 1
+        elseif sh.kind == "salvage" then prio = 2
+        else prio = 3 end
         local dd = d2(df.x, df.y, sh.x, sh.y)
-        if dd < td then target, td = sh, dd end
+        local score = prio * 1e9 + dd
+        if score < ts then target, ts = sh, score end
       end
     end
+    local td = target and d2(df.x, df.y, target.x, target.y) or 1e9
     if target then
       local dx, dy = target.x - df.x, target.y - df.y
       local dlen = math.sqrt(dx * dx + dy * dy)
@@ -1023,13 +1074,29 @@ local function tick_admirals()
       if s and s.owner ~= 1 then
         a.dispatch_cd = a.dispatch_cd - 1
         if a.dispatch_cd <= 0 then
-          if a.fleet_fighter > 0 then
+          -- alternate fighters and bombers so the fleet arrives mixed,
+          -- with fighters always going first to screen the slower bombers.
+          if a.fleet_fighter > 0
+             and (not a.last_dispatched or a.last_dispatched == "bomber"
+                  or (a.fleet_bomber or 0) <= 0) then
             a.fleet_fighter = a.fleet_fighter - 1
             spawn_fighter(s, a)
+            a.last_dispatched = "fighter"
+            a.dispatch_cd = dispatch_cd_for(a)
+          elseif (a.fleet_bomber or 0) > 0 then
+            a.fleet_bomber = a.fleet_bomber - 1
+            spawn_bomber(s, a)
+            a.last_dispatched = "bomber"
+            a.dispatch_cd = dispatch_cd_for(a)
+          elseif a.fleet_fighter > 0 then
+            a.fleet_fighter = a.fleet_fighter - 1
+            spawn_fighter(s, a)
+            a.last_dispatched = "fighter"
             a.dispatch_cd = dispatch_cd_for(a)
           elseif a.fleet_salvage > 0 then
             a.fleet_salvage = a.fleet_salvage - 1
             spawn_salvage(s, a)
+            a.last_dispatched = "salvage"
             a.dispatch_cd = dispatch_cd_for(a)
           else
             a.dispatch_cd = 12
@@ -1077,6 +1144,11 @@ local function update_system()
       if money >= c then
         spawn_fighter(s, a)
         money = money - c
+      end
+    elseif s and in_b(R.bomb) then
+      if money >= BOMBER_COST then
+        spawn_bomber(s, a)
+        money = money - BOMBER_COST
       end
     elseif s and in_b(R.salv) then
       if money >= SALVAGE_COST then
@@ -1164,6 +1236,11 @@ local function update_fleet()
     if a.alive and money >= c then
       money = money - c
       a.fleet_fighter = a.fleet_fighter + 1
+    end
+  elseif in_b(R.f_bb) then
+    if a.alive and money >= BOMBER_COST then
+      money = money - BOMBER_COST
+      a.fleet_bomber = (a.fleet_bomber or 0) + 1
     end
   elseif in_b(R.f_bs) then
     if a.alive and money >= SALVAGE_COST then
@@ -1323,6 +1400,13 @@ local function draw_ship(sh, body_color)
     pix(sh.x - 2, sh.y, body)
     pix(sh.x + 2, sh.y, body)
     pix(sh.x, sh.y, 7)
+  elseif sh.kind == "bomber" then
+    -- chunkier, blockier silhouette so bombers read at a glance
+    rect(sh.x - 1, sh.y - 1, 3, 3, body)
+    pix(sh.x - 2, sh.y - 1, body)
+    pix(sh.x + 2, sh.y - 1, body)
+    pix(sh.x - 2, sh.y + 1, body)
+    pix(sh.x + 2, sh.y + 1, body)
   else
     pix(sh.x, sh.y, body)
     pix(sh.x - 1, sh.y, body)
@@ -1387,7 +1471,8 @@ end
 
 local function draw_spawn_buttons()
   draw_button(R.spawn[1], R.spawn[2], R.spawn[3], R.spawn[4], "fighter", FIGHTER_COST)
-  draw_button(R.salv[1], R.salv[2], R.salv[3], R.salv[4],  "salvage", SALVAGE_COST)
+  draw_button(R.bomb[1],  R.bomb[2],  R.bomb[3],  R.bomb[4],  "bomber",  BOMBER_COST)
+  draw_button(R.salv[1],  R.salv[2],  R.salv[3],  R.salv[4],  "salvage", SALVAGE_COST)
 end
 
 local function draw_planet_hp(s)
@@ -1509,6 +1594,7 @@ local function draw_system()
   for _, sh in ipairs(s.ships) do
     local c = FIGHTER.color
     if sh.kind == "salvage" then c = SALVAGE.color
+    elseif sh.kind == "bomber" then c = BOMBER.color
     elseif sh.kind == "flagship" then c = FLAGSHIP.color end
     draw_ship(sh, c)
   end
@@ -1644,8 +1730,8 @@ local function draw_fleet()
   print(a.flagship_deployed and "deployed" or "docked",
         160, 24, a.flagship_deployed and 11 or 14, false, 1, true)
 
-  print(string.format("pool: %d fighters  %d salvage",
-          a.fleet_fighter, a.fleet_salvage),
+  print(string.format("pool: %d fig  %d bom  %d sal",
+          a.fleet_fighter, a.fleet_bomber or 0, a.fleet_salvage),
         4, 36, 14, false, 1, true)
 
   local tname = "none"
@@ -1668,12 +1754,16 @@ local function draw_fleet()
 
   local fc = fighter_cost_real()
   local can_bf = a.alive and money >= fc
+  local can_bb = a.alive and money >= BOMBER_COST
   local can_bs = a.alive and money >= SALVAGE_COST
   draw_panel_button(R.f_bf[1], R.f_bf[2], R.f_bf[3], R.f_bf[4],
-    string.format("build fighter $%d", fc),
+    string.format("fighter $%d", fc),
     in_b(R.f_bf), can_bf)
+  draw_panel_button(R.f_bb[1], R.f_bb[2], R.f_bb[3], R.f_bb[4],
+    string.format("bomber $%d", BOMBER_COST),
+    in_b(R.f_bb), can_bb)
   draw_panel_button(R.f_bs[1], R.f_bs[2], R.f_bs[3], R.f_bs[4],
-    string.format("build salvage $%d", SALVAGE_COST),
+    string.format("salvage $%d", SALVAGE_COST),
     in_b(R.f_bs), can_bs)
 
   draw_panel_button(R.f_rec[1], R.f_rec[2], R.f_rec[3], R.f_rec[4],
