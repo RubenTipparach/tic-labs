@@ -72,10 +72,14 @@ local COL_KEYS = {"o", "d", "e", "l"}
 local COL_TITLES = {"offense", "defense", "economy", "logist"}
 
 -- defense baselines, scaled by per-star difficulty
-local TURRET_HP_BASE      = 80
-local PLANET_HP_BASE      = 180
+local TURRET_HP_BASE      = 30
+local PLANET_HP_BASE      = 60
 local DEF_SPAWN_CD_BASE   = 700
 local TURRET_REBUILD_BASE = 600
+-- shield regen: after this many frames without taking a hit the
+-- system slowly heals defenders and turrets, one HP per regen tick.
+local SHIELD_DELAY        = 300
+local SHIELD_TICK         = 18
 
 local view = "galaxy"
 local mx, my, ml, mm, mr = 0, 0, false, false, false
@@ -226,11 +230,12 @@ local function init_defenses(s)
 end
 
 local function gen_galaxy()
+  -- Lua's LCG returns biased low values for the first few pulls after
+  -- a fresh seed, so warm it up. Mixing tstamp with time and a hash of
+  -- the bit pattern gives a fuller 32-bit state for variety per launch.
   math.randomseed(seed)
+  for _ = 1, 24 do math.random() end
   stars = {}
-  local minD2 = 14 * 14
-  local target = 40
-  local tries = 0
   -- shuffle which empire occupies each quadrant so the same four faces
   -- are not always in the same corners across runs.
   local quad_emp = {2, 3, 4, 5}
@@ -238,15 +243,25 @@ local function gen_galaxy()
     local j = math.random(1, i)
     quad_emp[i], quad_emp[j] = quad_emp[j], quad_emp[i]
   end
-  while #stars < target and tries < target * 80 do
-    tries = tries + 1
-    local x = math.random(8, SW - 8)
-    local y = math.random(MAP_Y0 + 6, MAP_Y1 - 6)
-    local ok = true
-    for i = 1, #stars do
-      if d2(x, y, stars[i].x, stars[i].y) < minD2 then ok = false break end
-    end
-    if ok then
+
+  -- jittered grid: split the play area into 8x5 cells, drop one star
+  -- inside each cell at a random offset. Guarantees even spread without
+  -- clumping or wrap-around stripes that pure rejection sampling
+  -- produces with a 14px min distance.
+  local cols, rows = 8, 5
+  local x0, x1 = 8, SW - 8
+  local y0, y1 = MAP_Y0 + 6, MAP_Y1 - 6
+  local cw = (x1 - x0) / cols
+  local ch = (y1 - y0) / rows
+  local margin = 3
+  for ry = 0, rows - 1 do
+    for cx = 0, cols - 1 do
+      local jx = x0 + cx * cw + margin
+                 + math.random() * (cw - margin * 2)
+      local jy = y0 + ry * ch + margin
+                 + math.random() * (ch - margin * 2)
+      local x = math.floor(jx)
+      local y = math.floor(jy)
       local q
       if x < MAP_CX and y < MAP_CY then q = 1
       elseif x >= MAP_CX and y < MAP_CY then q = 2
@@ -266,6 +281,7 @@ local function gen_galaxy()
         planet_hp = nil, planet_max = nil,
         diff = 1.0,
         pseed = math.random() * 100,
+        shield_cd = 0,
       })
     end
   end
@@ -307,7 +323,9 @@ local function gen_galaxy()
     end
     local d = dist(s.x, s.y, sol.x, sol.y)
     local norm = d / max_d
-    s.diff = 1.0 + norm * 2.0 + (s.capital and 1.0 or 0)
+    -- inner ring stays soft (around 0.3), outer ring climbs to ~3,
+    -- capitals get an extra +1 on top.
+    s.diff = 0.3 + norm * 2.6 + (s.capital and 1.0 or 0)
     init_defenses(s)
   end
 end
@@ -711,12 +729,38 @@ local function tick_player_ships(s, viewed)
       sh.x = sh.x + sh.vx
       sh.y = sh.y + sh.vy
       sh.fire_cd = sh.fire_cd - 1
-      if enemy and sh.fire_cd <= 0 and d < stats.range then
-        local extra = sh.kind == "flagship"
-                      and flagship_dmg_bonus() or fighter_dmg_bonus()
-        fire_bullet(s, sh.x, sh.y, px, py, 1,
-                    stats.dmg + (sh.dmg_bonus or 0) + extra)
-        sh.fire_cd = stats.fire_cd
+      if enemy and sh.fire_cd <= 0 then
+        -- prioritize the closest in-range enemy ship (interceptor role),
+        -- fall back to alive turrets, finally to the planet body
+        local tgx, tgy, in_range = nil, nil, false
+        local best = stats.range * stats.range
+        for _, df in ipairs(s.defenders) do
+          if df.hp > 0 then
+            local dd = d2(sh.x, sh.y, df.x, df.y)
+            if dd < best then best, tgx, tgy = dd, df.x, df.y end
+          end
+        end
+        if not tgx then
+          for _, t in ipairs(s.turrets) do
+            if t.hp > 0 then
+              local tx, ty = turret_pos(s, t)
+              local dd = d2(sh.x, sh.y, tx, ty)
+              if dd < best then best, tgx, tgy = dd, tx, ty end
+            end
+          end
+        end
+        if tgx then
+          in_range = true
+        elseif d < stats.range then
+          tgx, tgy, in_range = px, py, true
+        end
+        if in_range then
+          local extra = sh.kind == "flagship"
+                        and flagship_dmg_bonus() or fighter_dmg_bonus()
+          fire_bullet(s, sh.x, sh.y, tgx, tgy, 1,
+                      stats.dmg + (sh.dmg_bonus or 0) + extra)
+          sh.fire_cd = stats.fire_cd
+        end
       end
     end
     clamp_in_play(sh)
@@ -809,6 +853,29 @@ end
 
 local function tick_turrets(s)
   if s.owner == 1 then return end
+  -- shield regen runs while not under fire. Heals one HP per SHIELD_TICK
+  -- on a single random alive defender or turret, so recovery looks
+  -- gradual rather than every defender snapping back to full at once.
+  if (s.shield_cd or 0) > 0 then
+    s.shield_cd = s.shield_cd - 1
+  else
+    s.shield_pulse = (s.shield_pulse or 0) + 1
+    if s.shield_pulse >= SHIELD_TICK then
+      s.shield_pulse = 0
+      local pool = {}
+      for _, df in ipairs(s.defenders) do
+        if df.hp > 0 and df.hp < df.max_hp then pool[#pool + 1] = df end
+      end
+      for _, t in ipairs(s.turrets) do
+        if t.hp > 0 and t.hp < t.max then pool[#pool + 1] = t end
+      end
+      if #pool > 0 then
+        local pick = pool[math.random(1, #pool)]
+        if pick.max_hp then pick.hp = math.min(pick.max_hp, pick.hp + 1)
+        else pick.hp = math.min(pick.max, pick.hp + 1) end
+      end
+    end
+  end
   for _, t in ipairs(s.turrets) do
     if t.hp > 0 then
       t.fire_cd = t.fire_cd - 1
@@ -851,6 +918,7 @@ local function tick_bullets(s, viewed)
       for _, df in ipairs(s.defenders) do
         if d2(b.x, b.y, df.x, df.y) <= 9 then
           df.hp = df.hp - b.dmg
+          s.shield_cd = SHIELD_DELAY
           if viewed then add_particle(b.x, b.y, 3, 9) end
           hit = true
           break
@@ -862,6 +930,7 @@ local function tick_bullets(s, viewed)
             local tx, ty = turret_pos(s, t)
             if d2(b.x, b.y, tx, ty) <= 9 then
               t.hp = t.hp - b.dmg
+              s.shield_cd = SHIELD_DELAY
               if viewed then add_particle(b.x, b.y, 3, 9) end
               if t.hp <= 0 then
                 t.hp = 0
@@ -878,6 +947,7 @@ local function tick_bullets(s, viewed)
       if not hit and d2(b.x, b.y, MAP_CX, MAP_CY) <= pr2 then
         -- bullet hit the planet body, always consumed
         hit = true
+        s.shield_cd = SHIELD_DELAY
         if not def_alive and s.owner ~= 1
            and s.planet_hp and s.planet_hp > 0 then
           s.planet_hp = s.planet_hp - b.dmg
