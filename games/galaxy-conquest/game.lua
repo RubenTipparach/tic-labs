@@ -531,33 +531,23 @@ local function tick_transits()
 end
 
 local function admiral_recall(a)
-  -- send each surviving ship home as an inbound transit (green dot on
-  -- the galaxy map). Pool only refills when the transit reaches Sol.
+  -- staggered recall: clear the dispatch target, mark the admiral as
+  -- recalling, and let tick_admirals pull one ship out of the field
+  -- per dispatch cooldown so the journey home matches the journey out.
+  a.recalling = true
+  a.target_idx = nil
+  a.dispatch_cd = 0
+  -- in-flight outbound transits flip direction immediately, no point
+  -- letting them keep flying away from home.
   local sol = stars[sol_idx] or stars[1]
-  local hx, hy = sol.x, sol.y
-  for _, s in ipairs(stars) do
-    local i = 1
-    while i <= #s.ships do
-      local sh = s.ships[i]
-      if sh.team == 1 and sh.admiral == a then
-        add_transit(sh.kind, a, s.x, s.y, hx, hy, "in",
-                    sh.hp, sh.max_hp)
-        if sh.kind == "flagship" then a.flagship_deployed = true end
-        table.remove(s.ships, i)
-      else
-        i = i + 1
+  if sol then
+    for _, t in ipairs(transits) do
+      if t.admiral == a and t.dir == "out" then
+        t.dir = "in"
+        t.tx, t.ty = sol.x, sol.y
       end
     end
   end
-  -- also redirect any in-flight outbound transits for this admiral
-  for _, t in ipairs(transits) do
-    if t.admiral == a and t.dir == "out" then
-      t.dir = "in"
-      t.tx, t.ty = hx, hy
-    end
-  end
-  a.target_idx = nil
-  a.dispatch_cd = 0
 end
 
 local function roll_traits(n)
@@ -635,11 +625,13 @@ local function capture_planet(s)
   capture_flash = 60
   capture_msg = string.format("%s captured!", s.name)
   officer_xp = officer_xp + 10
-  -- recall any admiral that was attacking here, survivors retreat home
+  -- clear targets pointing at this system (no more auto-dispatch),
+  -- but leave the deployed fleet in orbit. The player decides when to
+  -- recall via the fleet panel.
   for _, a in ipairs(admirals) do
-    if a.alive and a.target_idx then
-      local t = stars[a.target_idx]
-      if t == s then admiral_recall(a) end
+    if a.target_idx and stars[a.target_idx] == s then
+      a.target_idx = nil
+      a.dispatch_cd = 0
     end
   end
   if s.capital and not victory and caps_taken() >= 4 then
@@ -734,11 +726,12 @@ local function update_galaxy()
       local a = admirals[sel_admiral]
       if a and a.alive and sel_idx and stars[sel_idx]
          and stars[sel_idx].owner ~= 1 then
-        if a.target_idx and a.target_idx ~= sel_idx then
-          admiral_recall(a)
-        end
+        -- redirect dispatches without recalling the existing fleet.
+        -- ships already at the old target keep fighting until the
+        -- player explicitly recalls them.
         a.target_idx = sel_idx
         a.dispatch_cd = 0
+        a.recalling = false
         return
       end
     end
@@ -1138,6 +1131,29 @@ end
 local function tick_admirals()
   local sol = stars[sol_idx]
   for _, a in ipairs(admirals) do
+    if a.recalling and sol then
+      a.dispatch_cd = a.dispatch_cd - 1
+      if a.dispatch_cd <= 0 then
+        local picked = false
+        for _, s in ipairs(stars) do
+          for i, sh in ipairs(s.ships) do
+            if sh.team == 1 and sh.admiral == a then
+              add_transit(sh.kind, a, s.x, s.y, sol.x, sol.y, "in",
+                          sh.hp, sh.max_hp)
+              table.remove(s.ships, i)
+              a.dispatch_cd = dispatch_cd_for(a)
+              picked = true
+              break
+            end
+          end
+          if picked then break end
+        end
+        if not picked then
+          a.recalling = false
+          a.dispatch_cd = 0
+        end
+      end
+    end
     if a.alive and a.target_idx then
       local s = stars[a.target_idx]
       if s and s.owner ~= 1 and sol then
@@ -1240,7 +1256,32 @@ end
 local function fire_admiral(idx)
   local a = admirals[idx]
   if not a then return end
-  if a.alive then admiral_recall(a) end
+  -- the admiral is leaving the roster, so we cannot rely on the
+  -- staggered recall loop in tick_admirals (it iterates the active
+  -- roster). Snap any ships still in the field straight to inbound
+  -- transits so they aren't orphaned.
+  local sol = stars[sol_idx]
+  if a.alive and sol then
+    for _, s in ipairs(stars) do
+      local i = 1
+      while i <= #s.ships do
+        local sh = s.ships[i]
+        if sh.team == 1 and sh.admiral == a then
+          add_transit(sh.kind, a, s.x, s.y, sol.x, sol.y, "in",
+                      sh.hp, sh.max_hp)
+          table.remove(s.ships, i)
+        else
+          i = i + 1
+        end
+      end
+    end
+    for _, t in ipairs(transits) do
+      if t.admiral == a and t.dir == "out" then
+        t.dir = "in"
+        t.tx, t.ty = sol.x, sol.y
+      end
+    end
+  end
   table.remove(admirals, idx)
   if sel_admiral > #admirals then sel_admiral = #admirals end
   if sel_admiral < 1 then sel_admiral = 1 end
@@ -1306,6 +1347,7 @@ local function update_fleet()
     if a.alive and sel_idx and stars[sel_idx] and stars[sel_idx].owner ~= 1 then
       a.target_idx = sel_idx
       a.dispatch_cd = 0
+      a.recalling = false
     end
   elseif in_b(R.f_dep) then
     a.deploy_flagship_toggle = not a.deploy_flagship_toggle
@@ -1477,8 +1519,9 @@ local function draw_galaxy()
     end
     draw_panel_button(R.g_send[1], R.g_send[2], R.g_send[3], R.g_send[4],
       send_lbl, in_b(R.g_send), can_send)
+    local rec_lbl = (a and a.recalling) and "recalling..." or "recall fleet"
     draw_panel_button(R.g_rec[1], R.g_rec[2], R.g_rec[3], R.g_rec[4],
-      "recall fleet", in_b(R.g_rec), a and a.alive)
+      rec_lbl, in_b(R.g_rec), a and a.alive)
   end
 end
 
@@ -1860,7 +1903,7 @@ local function draw_fleet()
     in_b(R.f_bs), can_bs)
 
   draw_panel_button(R.f_rec[1], R.f_rec[2], R.f_rec[3], R.f_rec[4],
-    "recall fleet to home",
+    a.recalling and "recalling..." or "recall fleet to home",
     in_b(R.f_rec), a.alive)
 end
 
