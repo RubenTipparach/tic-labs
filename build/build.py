@@ -980,7 +980,7 @@ GALLERY_TEMPLATE = """<!DOCTYPE html>
 CARD_TEMPLATE = """
     <a class="card" href="{slug}/">
       <div class="card-preview" style="background: {bg_color};">
-        {icon_svg}
+        {preview}
       </div>
       <div class="card-body">
         <h2>{title}</h2>
@@ -1044,9 +1044,11 @@ def build():
                 print(f"  Skipped: {game['slug']}/ (no PICO-8 binary)")
                 continue
             if build_pico8_game(game):
+                copy_thumbnail(game)
                 built_games.append(game)
         else:
             build_game(game, use_tic80, blank_tic, tic80_fs)
+            copy_thumbnail(game)
             built_games.append(game)
     games = built_games
 
@@ -1076,6 +1078,7 @@ def discover_games():
         lua_file = os.path.join(game_dir, "game.lua")
         meta_file = os.path.join(game_dir, "meta.json")
         p8_file = _find_p8_cart(game_dir)
+        thumb_file = _find_thumbnail(game_dir)
 
         meta = {
             "title": entry.replace("-", " ").title(),
@@ -1094,16 +1097,29 @@ def discover_games():
             meta.setdefault("description", "A TIC-80 game.")
             games.append({
                 "slug": entry, "engine": "tic80",
-                "lua": lua_source, **meta,
+                "lua": lua_source, "thumbnail_image": thumb_file, **meta,
             })
         elif p8_file:
             meta.setdefault("description", "A PICO-8 game.")
             games.append({
                 "slug": entry, "engine": "pico8",
-                "cart_path": p8_file, **meta,
+                "cart_path": p8_file, "thumbnail_image": thumb_file, **meta,
             })
 
     return games
+
+
+def _find_thumbnail(game_dir):
+    """Return the path to a game's screenshot thumbnail, if present.
+
+    Prefer thumbnail.png, then screenshot.png. Used as the gallery card
+    image; falls back to thumbnail_color when no image exists.
+    """
+    for name in ("thumbnail.png", "screenshot.png"):
+        p = os.path.join(game_dir, name)
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def _find_p8_cart(game_dir):
@@ -1195,11 +1211,37 @@ def build_pico8_game(game):
     return True
 
 
+def copy_thumbnail(game):
+    """Copy a game's screenshot thumbnail into its output dir as thumb.png.
+
+    Records the gallery-relative path on the game dict so build_gallery can
+    render it as the card image instead of the placeholder icon.
+    """
+    src = game.get("thumbnail_image")
+    if not src:
+        return
+    out_dir = os.path.join(OUTPUT_DIR, game["slug"])
+    os.makedirs(out_dir, exist_ok=True)
+    shutil.copyfile(src, os.path.join(out_dir, "thumb.png"))
+    game["thumb_rel"] = f"{game['slug']}/thumb.png"
+
+
 def build_gallery(games):
     """Build the gallery index page."""
     cards_html = ""
     for game in games:
-        icon_svg = GAME_ICONS.get(game["slug"], GAME_ICONS["default"])
+        thumb_rel = game.get("thumb_rel")
+        if thumb_rel:
+            preview = (
+                '<img class="card-thumb" src="{src}" alt="{alt} screenshot" '
+                'loading="lazy" style="width:100%;height:100%;'
+                'object-fit:cover;image-rendering:pixelated;">'
+            ).format(
+                src=html.escape(thumb_rel),
+                alt=html.escape(game["title"]),
+            )
+        else:
+            preview = GAME_ICONS.get(game["slug"], GAME_ICONS["default"])
         cards_html += CARD_TEMPLATE.format(
             slug=game["slug"],
             title=html.escape(game["title"]),
@@ -1207,7 +1249,7 @@ def build_gallery(games):
             author=html.escape(game["author"]),
             controls=html.escape(game.get("controls", "")),
             bg_color=html.escape(game.get("thumbnail_color", "#1a1a2e")),
-            icon_svg=icon_svg,
+            preview=preview,
         )
 
     gallery_html = GALLERY_TEMPLATE.format(cards=cards_html)

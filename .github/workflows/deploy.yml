@@ -67,21 +67,58 @@ jobs:
           path: ~/pico8
           # Bump the version suffix to force a fresh download (e.g. after
           # PICO-8 updates or PICO8_URL changes).
-          key: pico8-linux-v1
+          key: pico8-linux-v2
 
       - name: Fetch PICO-8
         if: steps.pico8-gate.outputs.run == 'true' && steps.cache-pico8.outputs.cache-hit != 'true'
         env:
           PICO8_URL: ${{ secrets.PICO8_URL }}
         run: |
-          if [ -z "$PICO8_URL" ]; then
+          set -euo pipefail
+          if [ -z "${PICO8_URL:-}" ]; then
             echo "::warning::PICO8_URL secret not set; PICO-8 carts will be skipped."
             exit 0
           fi
-          curl -fsSL "$PICO8_URL" -o pico8.zip
+          case "$PICO8_URL" in
+            *drive.google.com*|*docs.google.com*)
+              # Google Drive share links cannot be fetched with plain curl:
+              # they return an HTML interstitial and, for larger files, a
+              # virus-scan confirmation token. gdown handles both. We extract
+              # the file id and pass it directly so this works regardless of
+              # the gdown version (older versions lack the --fuzzy flag).
+              echo "Detected Google Drive URL; fetching with gdown."
+              python3 -m pip install --quiet --upgrade gdown
+              FILE_ID="$(printf '%s' "$PICO8_URL" \
+                | sed -nE 's#.*/d/([^/]+).*#\1#p; s#.*[?&]id=([^&]+).*#\1#p' \
+                | head -n1)"
+              if [ -z "$FILE_ID" ]; then
+                echo "::error::Could not parse a Google Drive file id from PICO8_URL."
+                exit 1
+              fi
+              python3 -m gdown "$FILE_ID" -O pico8.zip
+              ;;
+            *)
+              curl -fsSL "$PICO8_URL" -o pico8.zip
+              ;;
+          esac
+          # Guard against HTML error pages masquerading as the archive.
+          if ! unzip -tqq pico8.zip >/dev/null 2>&1; then
+            echo "::error::Downloaded PICO-8 archive is not a valid zip. First bytes:"
+            head -c 200 pico8.zip || true
+            echo
+            exit 1
+          fi
           mkdir -p "$HOME/pico8"
           unzip -q pico8.zip -d "$HOME/pico8"
           rm pico8.zip
+          # Make sure we actually got the Linux PICO-8 zip (a 'pico8'
+          # binary), not e.g. a macOS/Windows build or a different product.
+          # If not, drop the extracted tree so it is not cached and fall
+          # back to skipping PICO-8 carts with a clear, actionable warning.
+          if [ -z "$(find "$HOME/pico8" -maxdepth 4 -type f -name pico8 2>/dev/null | head -n1)" ]; then
+            echo "::warning::PICO8_URL archive has no Linux 'pico8' binary; PICO-8 carts will be skipped. Upload the PICO-8 *Linux* zip (the one containing a 'pico8' executable)."
+            rm -rf "$HOME/pico8"
+          fi
 
       - name: Set up PICO-8
         if: steps.pico8-gate.outputs.run == 'true'
