@@ -49,6 +49,20 @@ text, 11/10/9/8 for friendly ships and water, 2/3/4 for hostile ships
 and explosions, 5/6/7 for organics and salvage. Avoid using index 14
 for player UI text, it disappears against dark backgrounds.
 
+## Game thumbnails
+
+Take a screenshot of each game and use it as the gallery thumbnail. Save
+it as `thumbnail.png` (or `screenshot.png`) in the game's folder under
+`games/`. The build copies it to `docs/<slug>/thumb.png` and renders it as
+the card image; when no image is present the card falls back to the
+`thumbnail_color` from `meta.json`. Prefer a real screenshot at the game's
+native resolution (128x128 for PICO-8 and TIC-80) so it scales crisply
+with pixel-art rendering. For PICO-8, the cart `__label__` is itself a
+captured screenshot, so capturing a good label in PICO-8 doubles as the
+thumbnail source. When you cannot run the engine to capture a live frame,
+render a faithful frame from the game's own draw code (same layout, sprites,
+and palette) as a stand-in, and replace it with a real capture later.
+
 ## Post-commit links
 
 After each commit, always show these links to the user:
