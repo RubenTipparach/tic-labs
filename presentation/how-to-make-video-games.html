@@ -112,9 +112,15 @@ body.bg3d-on #floor,body.bg3d-on #floorglow,body.bg3d-on .stars{display:none}
 
 .frame{width:min(1280px,100%);max-height:100%;background:transparent;
   border:5px solid var(--bd,var(--pink));
-  filter:drop-shadow(0 0 4px var(--bd,var(--pink))) drop-shadow(0 0 16px rgba(255,46,136,.55))}
+  filter:drop-shadow(0 0 4px var(--bd,var(--pink))) drop-shadow(0 0 16px rgba(255,46,136,.55));
+  /* flex column so the inner panel gets a definite height to scroll within.
+     A bare max-height parent leaves height:auto, so a percentage-height child
+     resolves to auto and never clips, which is why tall slides (e.g. the
+     influences grid or the playtesting list) spilled over the border instead
+     of scrolling. flex:1 + min-height:0 on the inner panel fixes that. */
+  display:flex;flex-direction:column}
 .frame-inner{background:linear-gradient(160deg,rgba(22,10,56,.66),rgba(12,4,38,.42) 20%);
-  padding:30px 34px;height:100%;overflow-y:auto;overflow-x:hidden}
+  padding:30px 34px;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
 
 .badge{font-family:'Press Start 2P';font-size:13px;color:#0a0118;
   background:var(--bd,var(--pink));padding:9px 14px;display:inline-block;letter-spacing:1px;
