@@ -288,13 +288,64 @@ ul.pts li:nth-child(4){animation-delay:.80s}
   animation:hop 1.2s steps(2) infinite}
 @keyframes hop{50%{transform:translateY(-10px)}}
 
+/* ===== MOBILE / TOUCH =====
+   Everything below lives inside media queries, so the desktop layout above
+   is left exactly as-is. These rules only kick in on small or short screens:
+   they make tap targets finger-sized, keep media inside the viewport, and
+   reclaim vertical space so slides fit without the HUD overlapping them. */
 @media (max-width:680px){
   .hud{font-size:9px;gap:8px;padding:10px}
-  .hud-top .stagetag{font-size:9px}
-  .frame-inner{padding:20px}
-  #slides,.slide{padding-top:62px}
+  .hud-top{gap:6px}
+  .hud-top .stagetag{font-size:9px;padding:5px 8px}
+  .frame-inner{padding:20px;-webkit-overflow-scrolling:touch}
+  /* wider frame (smaller side gap) and extra bottom room for the touch nav */
+  #slides{padding:60px 8px 96px}
+  .slide{inset:60px 8px 96px}
   #invader{display:none}
+
+  /* keep screenshots/gifs scaled to fit the screen, never overflowing it.
+     !important overrides the per-image inline heights so tall art shrinks. */
+  .shots{gap:10px}
+  .shots .shot{height:auto!important;width:auto;max-width:100%;max-height:32vh}
+  .feature{max-height:32vh!important;width:auto}
+  .ytwrap{margin-top:14px}
+  .gscroll{-webkit-overflow-scrolling:touch}
+
+  /* finger-sized navigation: bigger buttons, wrap instead of overflowing */
+  .hud-bottom{gap:8px;padding:8px 10px}
+  .navrow{flex-wrap:wrap;justify-content:center;gap:8px}
+  .btn{font-size:10px;padding:10px 14px}
+  .snd{font-size:9px;padding:9px 11px}
+  .hint{font-size:9px}
   .seg{width:9px;height:7px}
+}
+
+/* narrow phones (portrait): trim padding and scale the hero text so long
+   words like QUESTIONS? can't run past the frame edge. */
+@media (max-width:430px){
+  .frame-inner{padding:16px}
+  ul.pts{margin-top:16px}
+  ul.pts li{margin:10px 0;gap:10px}
+  .hero .big{font-size:clamp(20px,6.4vw,40px)}
+  .press{font-size:clamp(13px,3.6vw,26px)}
+  .shots .shot{max-height:26vh}
+  .gthumb{width:92px;height:74px}
+  .gdesc{font-size:16px}
+}
+
+/* short landscape (phone held sideways): height is the tight axis here, so
+   pull the slide insets and paddings in and let images use more height. */
+@media (orientation:landscape) and (max-height:520px){
+  #slides{padding:46px 10px 64px}
+  .slide{inset:46px 10px 64px}
+  .hud{padding:6px 10px}
+  .frame-inner{padding:14px 22px}
+  .title{margin:8px 0 4px}
+  ul.pts{margin-top:10px}
+  ul.pts li{margin:7px 0}
+  .shots{margin-top:10px}
+  .shots .shot{max-height:48vh}
+  .hud-bottom{gap:5px;padding:6px 10px}
 }
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:.001s!important;animation-iteration-count:1!important}
