@@ -18,6 +18,7 @@ import shutil
 import html
 import struct
 import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -970,6 +971,7 @@ GALLERY_TEMPLATE = """<!DOCTYPE html>
     {cards}
   </div>
   <div class="footer">
+    <a href="presentation/">&#9654; Slides: How to Make Video Games</a><br><br>
     Powered by <a href="https://tic80.com">TIC-80</a> |
     Built with TIC-Labs
   </div>
@@ -1062,6 +1064,22 @@ def build():
         pass
 
     print(f"\nBuild complete! {len(games)} game(s) -> {OUTPUT_DIR}/")
+
+    build_presentation()
+
+
+def build_presentation():
+    """Copy the slide decks under presentation/ into docs/presentation/ by
+    invoking presentation/build.py. Runs after the gallery so it only adds
+    to docs/ without clobbering it. Non-fatal if absent or it fails."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = os.path.join(repo_root, "presentation", "build.py")
+    if not os.path.exists(script):
+        return
+    print("\nBuilding presentation slides...")
+    result = subprocess.run([sys.executable, script], cwd=repo_root)
+    if result.returncode != 0:
+        print("  WARNING: presentation build failed")
 
 
 def discover_games():
